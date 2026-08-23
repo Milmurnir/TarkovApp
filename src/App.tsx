@@ -12,7 +12,7 @@ import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import {
   emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, saveProgress,
-  standingOf, withCompleted, type Progress,
+  standingById, withCompleted, type Progress,
 } from './lib/progress';
 import { useCoopRun, useMirroredField } from './lib/useCoopRun';
 import type { CheckEntry } from './lib/sharedRun';
@@ -136,19 +136,28 @@ export default function App() {
   const currentMap = maps.find((m) => m.normalizedName === mapName) ?? null;
   const wikiMapName = currentMap?.wikiName ?? mapData?.wikiName ?? '';
 
+  const taskIndex = useMemo(() => loadTaskIndex(), [api]);
+
   const mapQuestTitles = useMemo(() => {
     if (!questIndex || !wikiMapName) return questTitles;
     return questsForMap(questIndex, wikiMapName).map((entry) => entry.title);
   }, [questIndex, questTitles, wikiMapName]);
 
-  /** Where each quest on this map stands, keyed the way titles are matched. */
+  /**
+   * Where each quest on this map stands. Computed from the cached index, which
+   * covers every quest, rather than the map slice, which only holds the ones
+   * with published coordinates — those are the only ones that can be drawn, not
+   * the only ones you can go and do.
+   */
   const standingByQuest = useMemo(() => {
-    const byName = new Map<string, ReturnType<typeof standingOf>>();
-    for (const task of api?.tasks ?? []) {
-      byName.set(normalize(task.normalizedName), standingOf(task, progress));
+    const byName = new Map<string, ReturnType<typeof standingById>>();
+    for (const title of mapQuestTitles) {
+      const key = normalize(title);
+      const id = taskIndex.idByName[key];
+      if (id) byName.set(key, standingById(id, taskIndex, progress));
     }
     return byName;
-  }, [api, progress]);
+  }, [mapQuestTitles, taskIndex, progress]);
 
   function standingFor(title: string) {
     return standingByQuest.get(normalize(title)) ?? 'available';
@@ -181,8 +190,6 @@ export default function App() {
       .catch((error) => setWikiError(String(error.message ?? error)))
       .finally(() => setLoadingQuest(false));
   }
-
-  const taskIndex = useMemo(() => loadTaskIndex(), [api]);
 
   /** Records the run's finished quests, then clears the run they belonged to. */
   function finishRun(ids: string[]) {

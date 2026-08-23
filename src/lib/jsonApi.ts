@@ -14,8 +14,11 @@ import type { MapExtract, MapSpawn, Task, TaskObjective, Vec3 } from './types';
  * once, reduced to the slice one map needs, and only that slice is cached.
  */
 const BASE = '/api/json';
-const CACHE_PREFIX = 'tarkov-json-slice-v3:';
-const GRAPH_KEY = 'tarkov-task-index-v2';
+// The two are versioned together on purpose: the index is only written during a
+// full fetch, so leaving the slice cache warm across an index change would leave
+// the index empty and every quest looking unavailable.
+const CACHE_PREFIX = 'tarkov-json-slice-v5:';
+const GRAPH_KEY = 'tarkov-task-index-v4';
 const LANGUAGE = 'en';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
@@ -250,15 +253,24 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
   // Every task, not just this map's slice: prerequisite chains run across maps,
   // and a quest with no coordinates here still has an id worth writing back.
   // Ids and names only, which stays small enough to keep around.
-  const index: TaskIndex = { requires: {}, idByName: {} };
+  const key = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const index: TaskIndex = { requires: {}, idByName: {}, minLevel: {} };
   for (const raw of asList<any>(tasksPayload?.data?.tasks)) {
     if (typeof raw?.id !== 'string') continue;
     index.requires[raw.id] = (raw.taskRequirements ?? [])
       .map((req: any) => (typeof req.task === 'string' ? req.task : req.task?.id))
       .filter((id: any): id is string => typeof id === 'string');
     if (typeof raw.normalizedName === 'string') {
-      index.idByName[raw.normalizedName.toLowerCase().replace(/[^a-z0-9]/g, '')] = raw.id;
+      index.idByName[key(raw.normalizedName)] = raw.id;
     }
+    // Also keyed by the name players see, because the two diverge: "Green
+    // Corridor" is `green-corridor-bear` internally, and matching on the
+    // internal name alone quietly loses every quest with a faction variant.
+    // The internal name wins where both exist, being the more specific.
+    const shown = translate(taskText, raw.name);
+    if (shown && !(key(shown) in index.idByName)) index.idByName[key(shown)] = raw.id;
+
+    if (typeof raw.minPlayerLevel === 'number') index.minLevel[raw.id] = raw.minPlayerLevel;
   }
   try {
     localStorage.setItem(GRAPH_KEY, JSON.stringify(index));
@@ -290,15 +302,17 @@ export interface TaskIndex {
   requires: Record<string, string[]>;
   /** Normalised quest name -> task id, for quests with no coordinates here. */
   idByName: Record<string, string>;
+  /** Task id -> minimum player level, where the data gives one. */
+  minLevel: Record<string, number>;
 }
 
 export function loadTaskIndex(): TaskIndex {
   try {
     const raw = localStorage.getItem(GRAPH_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && parsed.requires && parsed.idByName) return parsed as TaskIndex;
+    if (parsed && parsed.requires && parsed.idByName && parsed.minLevel) return parsed as TaskIndex;
   } catch {
     // Fall through to an empty index; it is rebuilt on the next load.
   }
-  return { requires: {}, idByName: {} };
+  return { requires: {}, idByName: {}, minLevel: {} };
 }

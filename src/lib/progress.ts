@@ -128,22 +128,41 @@ export type TaskStanding = 'available' | 'completed' | 'locked' | 'too-low-level
 
 export function standingOf(task: Task, progress: Progress): TaskStanding {
   if (!task.id) return 'available';
-  if (progress.completed.has(task.id)) return 'completed';
+  return standingById(task.id, {
+    requires: {
+      [task.id]: task.taskRequirements
+        .filter((r) => (r.status.length > 0 ? r.status : ['complete']).includes('complete'))
+        .map((r) => r.task?.id)
+        .filter((id): id is string => Boolean(id)),
+    },
+    minLevel: task.minPlayerLevel === null ? {} : { [task.id]: task.minPlayerLevel },
+  }, progress);
+}
+
+/**
+ * Standing for any quest, by id.
+ *
+ * Works off the cached index rather than a map's task list on purpose: that
+ * list only holds quests with published objective coordinates, so anything
+ * without them was invisible to availability — a quest perfectly possible to do
+ * on the map simply never appeared as available.
+ */
+export function standingById(
+  id: string,
+  index: { requires: Record<string, string[]>; minLevel: Record<string, number> },
+  progress: Progress,
+): TaskStanding {
+  if (progress.completed.has(id)) return 'completed';
 
   // A prerequisite only counts as met when it is actually finished. The
   // prerequisite itself need not be on this map, which is why ids are compared
   // rather than looking the quest up.
-  const locked = task.taskRequirements.some((requirement) => {
-    const id = requirement.task?.id;
-    if (!id) return false;
-    const wants = requirement.status.length > 0 ? requirement.status : ['complete'];
-    if (!wants.includes('complete')) return false;
-    return !progress.completed.has(id);
-  });
-  if (locked) return 'locked';
+  if ((index.requires[id] ?? []).some((required) => !progress.completed.has(required))) {
+    return 'locked';
+  }
 
-  if (progress.playerLevel !== null && task.minPlayerLevel !== null
-    && progress.playerLevel < task.minPlayerLevel) {
+  const minLevel = index.minLevel[id];
+  if (progress.playerLevel !== null && typeof minLevel === 'number' && progress.playerLevel < minLevel) {
     return 'too-low-level';
   }
   return 'available';
