@@ -1,0 +1,14 @@
+name = "tarkov-run-sync"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# One Durable Object per run code: it holds the shared state and the open
+# sockets for that run.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RunRoom"
+
+# SQLite-backed Durable Objects are the ones included on the free plan.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RunRoom"]

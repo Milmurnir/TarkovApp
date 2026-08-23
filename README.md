@@ -225,6 +225,33 @@ live REST API (`GET /api/v2/token` returns 401 without auth):
 It reflects what you have ticked off there, not live game state. It would let the
 app hide completed quests. Not implemented yet.
 
+## Running with a friend
+
+Two people on the same raid share one run: the map, the selected quests, the
+spawn point, the current objective and the pre-raid checklist. One of you presses
+**Start a run**, reads the six-character code out, the other types it in. Pan and
+zoom stay your own, so you can look at different corners of the map without
+fighting over the view.
+
+Keys and items become a checklist you can put your name against. Claiming one
+tells your friend, so you do not both burn a slot on the same key — or both
+assume the other packed it. Ticking something as packed shows on both screens.
+
+The state is a flat map of `path -> {value, at, by}`, merged last-write-wins with
+ties broken by peer id, applied identically on both clients and on the relay.
+Two rules earn their keep:
+
+- **The clock always moves forward per player.** Claiming a key and ticking it
+  packed happen in the same millisecond, and a tie-break on peer id cannot
+  separate one player's own two writes — the second would lose to the first and
+  vanish.
+- **A joiner publishes nothing until the room's state arrives.** Otherwise the
+  person joining overwrites the host's setup with their own defaults on connect.
+
+It needs the relay in [`relay/`](relay/README.md) deployed and its address in
+[`src/lib/syncConfig.ts`](src/lib/syncConfig.ts). Without that the co-op panel
+says so and the rest of the app is unaffected.
+
 ## Updating a released build
 
 The app is an Electron shell around a local server that serves the built
@@ -261,6 +288,10 @@ effect. The line is stripped from the notes shown in the popup.
 ```
 scripts/generate_map_data.py   regenerates all map data and SVGs
 scripts/package-ui.mjs         packs dist into the release/ui.zip the updater pulls
+relay/worker.js                Cloudflare Worker relaying one shared run per code
+src/lib/sharedRun.ts           shared-state shape and the merge rule both sides apply
+src/lib/sync.ts                relay client: one socket, reconnect, heartbeat
+src/lib/useCoopRun.ts          the co-op connection, and mirroring app state onto it
 electron/updater.cjs           GitHub release check, bundle download and install
 electron/unzip.cjs             dependency-free zip reader used to unpack bundles
 src/lib/wiki.ts                MediaWiki client + wikitext parser

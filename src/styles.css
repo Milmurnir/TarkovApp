@@ -253,3 +253,56 @@ button:hover { border-color: var(--accent); }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .modal-actions .primary { background: var(--accent); color: #0b0f14; border-color: var(--accent); font-weight: 600; }
 .modal-actions .primary:hover { filter: brightness(1.08); }
+
+/* Co-op: sharing one run with a friend. */
+.coop-status { font-size: 12px; color: var(--muted); }
+.coop-status.connected { color: #4ade80; }
+.coop-status.reconnecting, .coop-status.connecting { color: var(--accent); }
+.coop-status.error { color: var(--error); }
+
+.coop-name { display: block; margin-bottom: 10px; }
+.coop-name span { display: block; margin-bottom: 4px; }
+
+.coop-code { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.coop-code strong {
+  font-size: 18px; letter-spacing: 3px; color: var(--accent);
+  background: #0e141c; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
+}
+.coop-code button { font-size: 12px; padding: 5px 10px; }
+
+.coop-start { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.coop-start .primary { background: var(--accent); color: #0b0f14; border-color: var(--accent); font-weight: 600; }
+.coop-start .primary:hover { filter: brightness(1.08); }
+.coop-start input { width: 110px; text-transform: uppercase; letter-spacing: 2px; }
+
+.coop-peers { list-style: none; margin: 4px 0; padding: 0; }
+.coop-peers li { padding: 3px 0; }
+
+.coop-notices {
+  position: fixed; right: 18px; bottom: 18px; z-index: 60;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+}
+.coop-notice {
+  background: var(--panel); border: 1px solid var(--accent); border-left-width: 3px;
+  border-radius: 8px; padding: 10px 14px; font-size: 13px; text-align: left;
+  max-width: 340px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Keys and items become a shared checklist during a run. */
+.checklist { list-style: none; margin: 4px 0; padding: 0; }
+.checklist li {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 4px 0; border-top: 1px solid var(--border);
+}
+.checklist li:first-child { border-top: 0; }
+.checklist li.packed .check-label { opacity: 0.55; text-decoration: line-through; }
+.checklist input[type="checkbox"] { width: auto; flex: 0 0 auto; align-self: center; }
+.check-label { flex: 1; }
+
+.claim {
+  flex: 0 0 auto; font-size: 11px; padding: 2px 8px;
+  background: transparent; color: var(--muted); white-space: nowrap;
+}
+.claim:hover { color: var(--text); }
+.claim.mine { color: #4ade80; border-color: #2f6b45; }
+.claim.taken { color: #7fb4ff; border-color: #2f4a6b; }

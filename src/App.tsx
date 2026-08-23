@@ -6,6 +6,10 @@ import CurrentObjective from './components/CurrentObjective';
 import RouteRequirements from './components/RouteRequirements';
 import QuestGuide from './components/QuestGuide';
 import UpdateNotice from './components/UpdateNotice';
+import CoopPanel from './components/CoopPanel';
+import CoopNotices from './components/CoopNotices';
+import { useCoopRun, useMirroredField } from './lib/useCoopRun';
+import type { CheckEntry } from './lib/sharedRun';
 import { buildRoute } from './lib/route';
 import { JsonApiError, fetchMapSlice, type MapSlice } from './lib/jsonApi';
 import { fetchQuest, fetchQuestList, searchQuests } from './lib/wiki';
@@ -47,6 +51,22 @@ export default function App() {
   /** Spawn placed by clicking the map; takes priority over the zone list. */
   const [clickedSpawn, setClickedSpawn] = useState<Vec3 | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
+
+  const coop = useCoopRun();
+  /** The checklist is shared during a run and kept locally otherwise. */
+  const [soloChecks, setSoloChecks] = useState<Record<string, CheckEntry>>({});
+  const checks = coop.code ? coop.state.checks : soloChecks;
+
+  function setCheck(label: string, patch: Partial<CheckEntry>) {
+    if (coop.code) {
+      coop.claim(label, patch);
+      return;
+    }
+    setSoloChecks((current) => {
+      const existing = current[label] ?? { claimedBy: null, claimedName: null, packed: false };
+      return { ...current, [label]: { ...existing, ...patch } };
+    });
+  }
 
   useEffect(() => {
     fetchMapIndex().then(setMaps).catch(() => setMaps([]));
@@ -267,10 +287,30 @@ export default function App() {
     }];
   }, [route, routeStart]);
 
+  // Everything that defines "the run we are doing" is mirrored; pan and zoom
+  // are not, so you can look somewhere else without dragging your friend's
+  // view along with you.
+  useMirroredField(coop, 'map', mapName, setMapName);
+  useMirroredField(coop, 'quests', selectedQuests, setSelectedQuests);
+  useMirroredField(coop, 'spawn', clickedSpawn, setClickedSpawn);
+  useMirroredField(coop, 'zone', zoneIndex, setZoneIndex);
+  useMirroredField(coop, 'selected', selectedOrder, setSelectedOrder);
+  useMirroredField(coop, 'activeQuest', activeWiki, setActiveWiki);
 
+  // Whatever a friend picked has to be fetched here too, or their quest shows
+  // up as a name with no requirements behind it.
+  useEffect(() => {
+    for (const title of selectedQuests) {
+      if (wikiByTitle[title] || loadingQuest) continue;
+      fetchQuest(title)
+        .then((quest) => setWikiByTitle((current) => ({ ...current, [title]: quest })))
+        .catch(() => { /* the panel already reports quests it cannot load */ });
+    }
+  }, [selectedQuests, wikiByTitle, loadingQuest]);
 
   return (
     <div className="app">
+      <CoopNotices run={coop} />
       <header>
         <h1>Tarkov Quest Router</h1>
         <span className="muted">quests from the EFT wiki · coordinates from json.tarkov.dev · spawns from SPT</span>
@@ -348,6 +388,8 @@ export default function App() {
             {loadingQuest && <p className="muted small">Loading quest...</p>}
             {wikiError && <p className="error small">{wikiError}</p>}
           </div>
+
+          <CoopPanel run={coop} />
 
           <div className="panel">
             <h2>Your spawn</h2>
@@ -466,6 +508,10 @@ export default function App() {
             activeTitle={activeWiki}
             onSelect={(title) => setActiveWiki(title)}
             colorOf={(title) => questAccent(taskNameFor(title))}
+            checks={checks}
+            onCheck={setCheck}
+            me={{ id: coop.peerId, name: coop.name }}
+            shared={coop.others.length > 0}
           />
 
           {activeWiki && (

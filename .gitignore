@@ -10,3 +10,6 @@ release/
 .DS_Store
 Thumbs.db
 *.log
+
+# Personal Claude Code overrides for this project
+.claude/settings.local.json

@@ -1,4 +1,5 @@
 import type { WikiQuest } from '../lib/types';
+import type { CheckEntry } from '../lib/sharedRun';
 
 interface Props {
   quests: WikiQuest[];
@@ -6,6 +7,14 @@ interface Props {
   onSelect: (title: string) => void;
   /** Same colour the quest's dots use on the map. */
   colorOf: (title: string) => string;
+  /** Who is bringing what, shared with the run when one is joined. */
+  checks: Record<string, CheckEntry>;
+  /** Changes part of an entry; anything not named keeps its current value. */
+  onCheck: (label: string, patch: Partial<CheckEntry>) => void;
+  /** This player, so the list can tell "you" from "them". */
+  me: { id: string; name: string };
+  /** True when a friend is in the run and claims are worth showing. */
+  shared: boolean;
 }
 
 interface Entry {
@@ -34,8 +43,15 @@ function merge(quests: WikiQuest[], pick: (q: WikiQuest) => { label: string; fou
 /**
  * Everything the whole run needs, combined across every selected quest, so the
  * pre-raid checklist is one list rather than one per quest.
+ *
+ * Keys and items are a checklist you can tick off and put your name against. In
+ * a shared run both sides see the same ticks, which is the point: two people
+ * carrying the same key is a wasted slot, and nobody carrying it is a wasted
+ * raid.
  */
-export default function RouteRequirements({ quests, activeTitle, onSelect, colorOf }: Props) {
+export default function RouteRequirements({
+  quests, activeTitle, onSelect, colorOf, checks, onCheck, me, shared,
+}: Props) {
   if (quests.length === 0) return null;
 
   const keys = merge(quests, (q) => q.keys.map((label) => ({ label })));
@@ -47,12 +63,15 @@ export default function RouteRequirements({ quests, activeTitle, onSelect, color
     .filter((entry) => !selectedTitles.has(entry.label));
 
   const nothing = keys.length === 0 && items.length === 0 && prerequisites.length === 0;
+  const packed = [...keys, ...items].filter((entry) => checks[entry.label]?.packed).length;
+  const total = keys.length + items.length;
 
   return (
     <div className="panel">
       <div className="panel-head">
         <h2>Run requirements</h2>
         <span className="muted small">
+          {total > 0 && `${packed}/${total} packed · `}
           {quests.length === 1 ? '1 quest' : `${quests.length} quests`}
         </span>
       </div>
@@ -61,9 +80,18 @@ export default function RouteRequirements({ quests, activeTitle, onSelect, color
         <p className="muted small">Nothing to prepare: no keys, items or outstanding prerequisites.</p>
       ) : (
         <div className="req-grid">
-          <Column title="Keys to bring" entries={keys} quests={quests} onSelect={onSelect} colorOf={colorOf} empty="No keys needed." />
-          <Column title="Items to buy or bring" entries={items} quests={quests} onSelect={onSelect} colorOf={colorOf} empty="Nothing to bring in." />
-          <Column title="Finish first" entries={prerequisites} quests={quests} onSelect={onSelect} colorOf={colorOf} empty="No outstanding prerequisites." />
+          <Column
+            title="Keys to bring" entries={keys} quests={quests} onSelect={onSelect} colorOf={colorOf}
+            empty="No keys needed." checks={checks} onCheck={onCheck} me={me} shared={shared}
+          />
+          <Column
+            title="Items to buy or bring" entries={items} quests={quests} onSelect={onSelect} colorOf={colorOf}
+            empty="Nothing to bring in." checks={checks} onCheck={onCheck} me={me} shared={shared}
+          />
+          <Column
+            title="Finish first" entries={prerequisites} quests={quests} onSelect={onSelect} colorOf={colorOf}
+            empty="No outstanding prerequisites."
+          />
         </div>
       )}
 
@@ -89,42 +117,87 @@ export default function RouteRequirements({ quests, activeTitle, onSelect, color
   );
 }
 
-function Column({ title, entries, quests, onSelect, empty, colorOf }: {
+function Column({ title, entries, quests, onSelect, empty, colorOf, checks, onCheck, me, shared }: {
   title: string;
   entries: Entry[];
   quests: WikiQuest[];
   onSelect: (title: string) => void;
   empty: string;
   colorOf: (title: string) => string;
+  /** Absent for columns that are a plain list rather than a checklist. */
+  checks?: Record<string, CheckEntry>;
+  onCheck?: (label: string, patch: Partial<CheckEntry>) => void;
+  me?: { id: string; name: string };
+  shared?: boolean;
 }) {
+  const checkable = Boolean(checks && onCheck && me);
+
   return (
     <section className="section">
       <h3>{title}</h3>
       {entries.length === 0 ? (
         <p className="muted small">{empty}</p>
       ) : (
-        <ul>
-          {entries.map((entry) => (
-            <li key={entry.label}>
-              {entry.label}
-              {entry.foundInRaid && <span className="tag">found in raid</span>}
-              {/* Only worth naming the quest when several are in the run. */}
-              {quests.length > 1 && (
-                <span className="req-for">
-                  {entry.quests.map((title) => (
-                    <button
-                      key={title}
-                      className="req-quest"
-                      style={{ borderColor: colorOf(title) }}
-                      onClick={() => onSelect(title)}
-                    >
-                      {title}
-                    </button>
-                  ))}
+        <ul className={checkable ? 'checklist' : undefined}>
+          {entries.map((entry) => {
+            const check = checks?.[entry.label];
+            const mine = check?.claimedBy === me?.id;
+            const theirs = Boolean(check?.claimedBy) && !mine;
+
+            return (
+              <li key={entry.label} className={check?.packed ? 'packed' : undefined}>
+                {checkable && me && onCheck && (
+                  <input
+                    type="checkbox"
+                    checked={Boolean(check?.packed)}
+                    title="Packed"
+                    onChange={(event) => onCheck(entry.label, { packed: event.target.checked })}
+                  />
+                )}
+
+                <span className="check-label">
+                  {entry.label}
+                  {entry.foundInRaid && <span className="tag">found in raid</span>}
+                  {/* Only worth naming the quest when several are in the run. */}
+                  {quests.length > 1 && (
+                    <span className="req-for">
+                      {entry.quests.map((title) => (
+                        <button
+                          key={title}
+                          className="req-quest"
+                          style={{ borderColor: colorOf(title) }}
+                          onClick={() => onSelect(title)}
+                        >
+                          {title}
+                        </button>
+                      ))}
+                    </span>
+                  )}
                 </span>
-              )}
-            </li>
-          ))}
+
+                {checkable && me && onCheck && shared && (
+                  theirs ? (
+                    <button
+                      className="claim taken"
+                      title="Take it over"
+                      onClick={() => onCheck(entry.label, { claimedBy: me.id, claimedName: me.name || 'You' })}
+                    >
+                      {check?.claimedName || 'Friend'} brings it
+                    </button>
+                  ) : (
+                    <button
+                      className={mine ? 'claim mine' : 'claim'}
+                      onClick={() => onCheck(entry.label, mine
+                        ? { claimedBy: null, claimedName: null }
+                        : { claimedBy: me.id, claimedName: me.name || 'You' })}
+                    >
+                      {mine ? 'You bring it' : "I'll bring it"}
+                    </button>
+                  )
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
