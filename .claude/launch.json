@@ -4,7 +4,10 @@
     {
       "name": "tarkov-quest-tracker",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5173
     }
   ]

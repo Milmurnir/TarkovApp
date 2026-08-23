@@ -5,7 +5,7 @@
  * connect. Set it to the `wss://` URL that `npx wrangler deploy` prints for
  * relay/worker.js — see relay/README.md.
  */
-export const RELAY_URL = '';
+export const RELAY_URL = 'wss://tarkov-run-sync.nicklas-evaldsson01.workers.dev';
 
 /** A run code is short enough to read out over voice chat. */
 export const CODE_LENGTH = 6;
