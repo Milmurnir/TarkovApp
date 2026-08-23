@@ -200,9 +200,15 @@ button:hover { border-color: var(--accent); }
 
 /* In-app updater: header button plus the release popup. */
 .update-slot { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-.update-check { font-size: 12px; padding: 5px 10px; color: var(--muted); }
-.update-check:hover:not(:disabled) { color: var(--text); }
+.update-check { font-size: 12px; padding: 6px 12px; }
 .update-check:disabled { opacity: 0.6; cursor: default; }
+
+/* An update found and then dismissed: the button is the way back to it. */
+.update-check.waiting {
+  background: var(--accent); color: #0b0f14;
+  border-color: var(--accent); font-weight: 600;
+}
+.update-check.waiting:hover { filter: brightness(1.08); }
 
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 50;

@@ -64,6 +64,14 @@ export default function UpdateNotice() {
     return bridge.onProgress(setProgress);
   }, [bridge]);
 
+  // Feedback on a click answers that click; it should not sit in the header
+  // forever afterwards. Errors shown in the popup stay until it is closed.
+  useEffect(() => {
+    if (!message || open) return;
+    const timer = setTimeout(() => setMessage(null), 6000);
+    return () => clearTimeout(timer);
+  }, [message, open]);
+
   if (!bridge) return null;
 
   async function install() {
@@ -83,13 +91,24 @@ export default function UpdateNotice() {
 
   const percent = progress.total > 0 ? Math.round((progress.received / progress.total) * 100) : 0;
   const version = info ? info.uiVersion : '';
+  // Dismissing the popup should not hide the update until the next launch: the
+  // button turns into the way back to it.
+  const waiting = !open && (phase === 'offered' || phase === 'ready');
 
   return (
     <>
       <div className="update-slot">
+        {version && <span className="muted small">v{version}</span>}
         {message && <span className="muted small">{message}</span>}
-        <button className="update-check" onClick={() => check(true)} disabled={phase === 'checking'}>
-          {phase === 'checking' ? 'Checking...' : `v${version} · check for updates`}
+        <button
+          className={waiting ? 'update-check waiting' : 'update-check'}
+          onClick={() => (waiting ? setOpen(true) : check(true))}
+          disabled={phase === 'checking'}
+        >
+          {phase === 'checking' ? 'Checking...'
+            : phase === 'ready' ? 'Restart to finish update'
+            : waiting ? `Update to v${result?.version}`
+            : 'Check for updates'}
         </button>
       </div>
 
