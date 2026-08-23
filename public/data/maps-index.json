@@ -1,0 +1,83 @@
+[
+ {
+  "normalizedName": "streets-of-tarkov",
+  "wikiName": "Streets of Tarkov",
+  "spawns": 196,
+  "snipers": 9,
+  "extracts": 17,
+  "labels": 46,
+  "spawnAccuracy": 1.0
+ },
+ {
+  "normalizedName": "customs",
+  "wikiName": "Customs",
+  "spawns": 120,
+  "snipers": 4,
+  "extracts": 26,
+  "labels": 24,
+  "spawnAccuracy": 1.0
+ },
+ {
+  "normalizedName": "woods",
+  "wikiName": "Woods",
+  "spawns": 140,
+  "snipers": 1,
+  "extracts": 19,
+  "labels": 16,
+  "spawnAccuracy": 1.0
+ },
+ {
+  "normalizedName": "factory",
+  "wikiName": "Factory",
+  "spawns": 85,
+  "snipers": 0,
+  "extracts": 8,
+  "labels": 27,
+  "spawnAccuracy": 0.9412
+ },
+ {
+  "normalizedName": "interchange",
+  "wikiName": "Interchange",
+  "spawns": 125,
+  "snipers": 0,
+  "extracts": 8,
+  "labels": 77,
+  "spawnAccuracy": 1.0
+ },
+ {
+  "normalizedName": "shoreline",
+  "wikiName": "Shoreline",
+  "spawns": 130,
+  "snipers": 4,
+  "extracts": 13,
+  "labels": 20,
+  "spawnAccuracy": 1.0
+ },
+ {
+  "normalizedName": "reserve",
+  "wikiName": "Reserve",
+  "spawns": 79,
+  "snipers": 0,
+  "extracts": 10,
+  "labels": 27,
+  "spawnAccuracy": 1.0
+ },
+ {
+  "normalizedName": "lighthouse",
+  "wikiName": "Lighthouse",
+  "spawns": 60,
+  "snipers": 2,
+  "extracts": 12,
+  "labels": 22,
+  "spawnAccuracy": 1.0
+ },
+ {
+  "normalizedName": "ground-zero",
+  "wikiName": "Ground Zero",
+  "spawns": 100,
+  "snipers": 0,
+  "extracts": 7,
+  "labels": 13,
+  "spawnAccuracy": 1.0
+ }
+]

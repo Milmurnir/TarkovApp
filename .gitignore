@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Build output: the frontend build and the packaged app both come from `npm run
+# build` / `npm run dist`, and ui.zip is published as a release asset instead.
+dist/
+release/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.log
