@@ -22,12 +22,17 @@ whoever currently has it open. Rooms delete themselves after 12 idle hours.
 Needs a free Cloudflare account. From this directory:
 
 ```bash
-npx wrangler login
+npx wrangler@3 login
 ```
 
 ```bash
-npx wrangler deploy
+npx wrangler@3 deploy
 ```
+
+The version pin is not cosmetic: wrangler 4 requires Node 22 and refuses to
+start on Node 18. Wrangler 3.114 runs on Node 18 and supports everything this
+worker uses, including the SQLite-backed Durable Objects the free plan needs.
+Drop the `@3` once you are on Node 22 or newer.
 
 Wrangler prints the deployed URL, something like
 `https://tarkov-run-sync.<your-subdomain>.workers.dev`. Put it in
@@ -46,7 +51,7 @@ rest of the app works exactly as before.
 ## Running it locally
 
 ```bash
-npx wrangler dev
+npx wrangler@3 dev
 ```
 
 That serves the relay at `http://127.0.0.1:8787` with local Durable Objects and
