@@ -306,3 +306,18 @@ button:hover { border-color: var(--accent); }
 .claim:hover { color: var(--text); }
 .claim.mine { color: #4ade80; border-color: #2f6b45; }
 .claim.taken { color: #7fb4ff; border-color: #2f4a6b; }
+
+/* Importing quest progress from TarkovTracker. */
+.tracker-connect { display: flex; gap: 8px; margin-top: 10px; }
+.tracker-connect input { flex: 1; min-width: 0; }
+.tracker-connect .primary,
+.tracker-add { background: var(--accent); color: #0b0f14; border-color: var(--accent); font-weight: 600; }
+.tracker-connect .primary:hover:not(:disabled),
+.tracker-add:hover:not(:disabled) { filter: brightness(1.08); }
+.tracker-connect .primary:disabled, .tracker-add:disabled {
+  background: transparent; color: var(--muted); border-color: var(--border);
+  font-weight: 400; cursor: default;
+}
+.tracker-add { width: 100%; margin: 10px 0 4px; }
+.tracker-actions { display: flex; gap: 8px; margin-top: 12px; }
+.tracker-actions button { font-size: 12px; padding: 5px 10px; }

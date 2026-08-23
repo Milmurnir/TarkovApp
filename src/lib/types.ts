@@ -68,7 +68,8 @@ export interface Task {
   kappaRequired: boolean | null;
   wikiLink: string | null;
   experience: number | null;
-  taskRequirements: { task: { name: string } | null; status: string[] }[];
+  /** Quests that must be finished first, by tarkov.dev task id. */
+  taskRequirements: { task: { id: string | null; name: string | null } | null; status: string[] }[];
   traderRequirements: { trader: { name: string } | null; value: number | null; requirementType: string | null }[];
   objectives: TaskObjective[];
 }

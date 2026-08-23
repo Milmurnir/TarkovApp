@@ -14,7 +14,7 @@ import type { MapExtract, MapSpawn, Task, TaskObjective, Vec3 } from './types';
  * once, reduced to the slice one map needs, and only that slice is cached.
  */
 const BASE = '/api/json';
-const CACHE_PREFIX = 'tarkov-json-slice-v2:';
+const CACHE_PREFIX = 'tarkov-json-slice-v3:';
 const LANGUAGE = 'en';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
@@ -234,7 +234,13 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
       kappaRequired: raw.kappaRequired ?? null,
       wikiLink: raw.wikiLink ?? null,
       experience: raw.experience ?? null,
-      taskRequirements: [],
+      // Prerequisites are ids, which is all that is needed to tell whether a
+      // quest is available: the id is looked up in what TarkovTracker reports
+      // as finished, so the prerequisite itself never has to be on this map.
+      taskRequirements: (raw.taskRequirements ?? []).map((req: any) => ({
+        task: { id: typeof req.task === 'string' ? req.task : req.task?.id ?? null, name: null },
+        status: Array.isArray(req.status) ? req.status : [],
+      })),
       traderRequirements: [],
       objectives,
     });

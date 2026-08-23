@@ -8,6 +8,11 @@ import QuestGuide from './components/QuestGuide';
 import UpdateNotice from './components/UpdateNotice';
 import CoopPanel from './components/CoopPanel';
 import CoopNotices from './components/CoopNotices';
+import TrackerPanel from './components/TrackerPanel';
+import {
+  fetchProgress, readToken, standingOf, storeToken,
+  type TrackerProgress,
+} from './lib/tracker';
 import { useCoopRun, useMirroredField } from './lib/useCoopRun';
 import type { CheckEntry } from './lib/sharedRun';
 import { buildRoute } from './lib/route';
@@ -52,6 +57,12 @@ export default function App() {
   const [clickedSpawn, setClickedSpawn] = useState<Vec3 | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
 
+  const [trackerToken, setTrackerToken] = useState(() => readToken());
+  const [progress, setProgress] = useState<TrackerProgress | null>(null);
+  const [trackerLoading, setTrackerLoading] = useState(false);
+  const [trackerError, setTrackerError] = useState<string | null>(null);
+  const [hideFinished, setHideFinished] = useState(true);
+
   const coop = useCoopRun();
   /** The checklist is shared during a run and kept locally otherwise. */
   const [soloChecks, setSoloChecks] = useState<Record<string, CheckEntry>>({});
@@ -80,6 +91,26 @@ export default function App() {
         setIndexProgress(null);
       })
       .catch((e) => setWikiError(String(e)));
+  }, []);
+
+  function loadProgress(token: string) {
+    if (!token.trim()) return;
+    setTrackerLoading(true);
+    setTrackerError(null);
+    fetchProgress(token)
+      .then((result) => {
+        setProgress(result);
+        storeToken(token);
+        setTrackerToken(token);
+      })
+      .catch((error) => setTrackerError(String(error.message ?? error)))
+      .finally(() => setTrackerLoading(false));
+  }
+
+  // A token saved from last time should just work on startup.
+  useEffect(() => {
+    if (trackerToken) loadProgress(trackerToken);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reload everything map-specific when the map changes.
@@ -111,10 +142,32 @@ export default function App() {
     return questsForMap(questIndex, wikiMapName).map((entry) => entry.title);
   }, [questIndex, questTitles, wikiMapName]);
 
+  /** Where each quest on this map stands, keyed the way titles are matched. */
+  const standingByQuest = useMemo(() => {
+    const byName = new Map<string, ReturnType<typeof standingOf>>();
+    for (const task of api?.tasks ?? []) {
+      byName.set(normalize(task.normalizedName), standingOf(task, progress));
+    }
+    return byName;
+  }, [api, progress]);
+
+  function standingFor(title: string) {
+    return standingByQuest.get(normalize(title)) ?? 'available';
+  }
+
   const suggestions = useMemo(
-    () => searchQuests(mapQuestTitles, query).filter((t) => !selectedQuests.includes(t)),
-    [mapQuestTitles, query, selectedQuests],
+    () => searchQuests(mapQuestTitles, query)
+      .filter((t) => !selectedQuests.includes(t))
+      .filter((t) => !(hideFinished && progress && standingByQuest.get(normalize(t)) === 'completed')),
+    [mapQuestTitles, query, selectedQuests, hideFinished, progress, standingByQuest],
   );
+
+  /** Quests on this map you could start right now, and have not already added. */
+  const availableTitles = useMemo(() => {
+    if (!progress) return [];
+    return mapQuestTitles.filter((title) =>
+      !selectedQuests.includes(title) && standingByQuest.get(normalize(title)) === 'available');
+  }, [progress, mapQuestTitles, selectedQuests, standingByQuest]);
 
   function pickQuest(title: string) {
     setQuery('');
@@ -129,6 +182,10 @@ export default function App() {
       .then((quest) => setWikiByTitle((current) => ({ ...current, [title]: quest })))
       .catch((error) => setWikiError(String(error.message ?? error)))
       .finally(() => setLoadingQuest(false));
+  }
+
+  function addAvailableQuests() {
+    for (const title of availableTitles) pickQuest(title);
   }
 
   function removeQuest(title: string) {
@@ -369,6 +426,11 @@ export default function App() {
                     style={{ borderLeft: `4px solid ${questAccent(taskNameFor(title))}` }}
                   >
                     <button className="chosen-name" onClick={() => setActiveWiki(title)}>{title}</button>
+                    {/* Adding something you have already done, or cannot start
+                        yet, is worth saying rather than silently routing it. */}
+                    {progress && standingFor(title) === 'completed' && <span className="tag">done</span>}
+                    {progress && standingFor(title) === 'locked' && <span className="tag">locked</span>}
+                    {progress && standingFor(title) === 'too-low-level' && <span className="tag">level</span>}
                     {unroutable.includes(title) && <span className="tag">no coords</span>}
                     <button className="chosen-remove" onClick={() => removeQuest(title)} title="Remove">x</button>
                   </li>
@@ -388,6 +450,26 @@ export default function App() {
             {loadingQuest && <p className="muted small">Loading quest...</p>}
             {wikiError && <p className="error small">{wikiError}</p>}
           </div>
+
+          <TrackerPanel
+            progress={progress}
+            token={trackerToken}
+            loading={trackerLoading}
+            error={trackerError}
+            mapName={wikiMapName || mapName}
+            availableTitles={availableTitles}
+            hideFinished={hideFinished}
+            onConnect={(token) => loadProgress(token)}
+            onRefresh={() => loadProgress(trackerToken)}
+            onDisconnect={() => {
+              storeToken('');
+              setTrackerToken('');
+              setProgress(null);
+              setTrackerError(null);
+            }}
+            onAddAvailable={addAvailableQuests}
+            onHideFinished={setHideFinished}
+          />
 
           <CoopPanel run={coop} />
 
