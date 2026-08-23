@@ -75,7 +75,9 @@ export default function App() {
   // there, which is what makes progress outlive replacing the app.
   useEffect(() => {
     loadDurableProgress(progress).then((restored) => {
-      if (restored) setProgress(restored);
+      // Written straight back out, so localStorage matches from here on and a
+      // restore leaves a trace rather than being invisible.
+      if (restored) setProgress(saveProgress(restored));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
