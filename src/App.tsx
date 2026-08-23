@@ -11,8 +11,8 @@ import CoopNotices from './components/CoopNotices';
 import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import {
-  emptyProgress, loadDurableProgress, loadProgress, saveProgress, standingOf, withCompleted,
-  type Progress,
+  emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, saveProgress,
+  standingOf, withCompleted, type Progress,
 } from './lib/progress';
 import { useCoopRun, useMirroredField } from './lib/useCoopRun';
 import type { CheckEntry } from './lib/sharedRun';
@@ -63,6 +63,8 @@ export default function App() {
   const [finishOpen, setFinishOpen] = useState(false);
   /** Bumped on every open so the dialog never inherits the last run's ticks. */
   const [finishSession, setFinishSession] = useState(0);
+  /** The last automatic back-fill, kept so it can be undone. */
+  const [lastBackfill, setLastBackfill] = useState<{ title: string; ids: string[] } | null>(null);
 
   /** Every progress change is written through, so a crash loses nothing. */
   function updateProgress(next: Progress) {
@@ -168,6 +170,7 @@ export default function App() {
     setSelectedOrder(null);
     setActiveWiki(title);
     setSelectedQuests((current) => (current.includes(title) ? current : [...current, title]));
+    backfillFor(title);
 
     if (wikiByTitle[title]) return;
     setLoadingQuest(true);
@@ -186,6 +189,30 @@ export default function App() {
     setSelectedQuests([]);
     setActiveWiki(null);
     setSelectedOrder(null);
+  }
+
+  /**
+   * Adding a quest means you are doing it now, which can only be true if
+   * everything before it is already done — so those are marked, and it is not.
+   * Announced with an undo rather than done silently: it changes stored
+   * progress off the back of what looks like a browsing action.
+   */
+  function backfillFor(title: string) {
+    const id = tasks.find((t) => normalize(t.normalizedName) === normalize(title))?.id
+      ?? taskIndex.idByName[normalize(title)];
+    if (!id) return;
+
+    const missing = missingPrerequisites(id, taskIndex.requires, progress);
+    if (missing.length === 0) return;
+
+    updateProgress(withCompleted(progress, missing, true));
+    setLastBackfill({ title, ids: missing });
+  }
+
+  function undoBackfill() {
+    if (!lastBackfill) return;
+    updateProgress(withCompleted(progress, lastBackfill.ids, false));
+    setLastBackfill(null);
   }
 
   function addAvailableQuests() {
@@ -440,6 +467,14 @@ export default function App() {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {lastBackfill && (
+              <p className="backfill-note small">
+                Marked the {lastBackfill.ids.length} quest{lastBackfill.ids.length === 1 ? '' : 's'} before{' '}
+                {lastBackfill.title} as finished.{' '}
+                <button className="muted-button" onClick={undoBackfill}>Undo</button>
+              </p>
             )}
 
             {selectedQuests.length > 1 && (

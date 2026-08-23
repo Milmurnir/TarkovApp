@@ -51,9 +51,9 @@ export default function ProgressPanel({
   );
   const alreadyDone = pickedId ? progress.completed.has(pickedId) : false;
 
-  function applyCatchUp() {
+  function applyCatchUp(includeItself: boolean) {
     if (!pickedId) return;
-    onCatchUp([...behind, pickedId]);
+    onCatchUp(includeItself ? [...behind, pickedId] : behind);
     setPicked(null);
     setQuery('');
   }
@@ -87,7 +87,8 @@ export default function ProgressPanel({
       <section className="section">
         <h3>Catch up</h3>
         <p className="muted small">
-          Name the last quest you finished in a chain and everything before it is marked too.
+          Name a quest and everything before it in the chain is marked finished. Adding a quest to
+          a run does this on its own.
         </p>
         <input
           value={query}
@@ -112,17 +113,22 @@ export default function ProgressPanel({
             ) : (
               <>
                 <p className="small">
-                  {alreadyDone && behind.length === 0
-                    ? <>Already marked as finished.</>
-                    : <>Marks <strong>{picked}</strong>{behind.length > 0 && <> and the {behind.length} quest{behind.length === 1 ? '' : 's'} before it</>} as finished.</>}
+                  {behind.length > 0
+                    ? <><strong>{behind.length}</strong> quest{behind.length === 1 ? '' : 's'} before <strong>{picked}</strong> {behind.length === 1 ? 'is' : 'are'} not marked finished yet.</>
+                    : <>Everything before <strong>{picked}</strong> is already marked finished.</>}
                 </p>
                 <div className="catch-up-actions">
+                  {/* The common case: you are partway through a chain, so what
+                      came before is done and this one is not. */}
                   <button
                     className="primary"
-                    onClick={applyCatchUp}
-                    disabled={alreadyDone && behind.length === 0}
+                    onClick={() => applyCatchUp(false)}
+                    disabled={behind.length === 0}
                   >
-                    Mark finished
+                    I am doing this now
+                  </button>
+                  <button onClick={() => applyCatchUp(true)} disabled={alreadyDone && behind.length === 0}>
+                    I finished it too
                   </button>
                   <button onClick={() => { setPicked(null); setQuery(''); }}>Cancel</button>
                 </div>
