@@ -499,6 +499,7 @@ export default function App() {
             availableTitles={availableTitles}
             hideFinished={hideFinished}
             onCatchUp={(ids) => updateProgress(withCompleted(progress, ids, true))}
+            onUnmark={(id) => updateProgress(withCompleted(progress, [id], false))}
             onAddAvailable={addAvailableQuests}
             onHideFinished={setHideFinished}
             onSetLevel={(level) => updateProgress({ ...progress, playerLevel: level })}

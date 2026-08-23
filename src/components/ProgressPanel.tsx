@@ -14,6 +14,8 @@ interface Props {
   availableTitles: string[];
   hideFinished: boolean;
   onCatchUp: (ids: string[]) => void;
+  /** Undo a single quest, for when a bulk guess got one wrong. */
+  onUnmark: (id: string) => void;
   onAddAvailable: () => void;
   onHideFinished: (hide: boolean) => void;
   onSetLevel: (level: number | null) => void;
@@ -33,7 +35,7 @@ function normalize(value: string): string {
  */
 export default function ProgressPanel({
   progress, questTitles, idByName, requires, mapName, availableTitles, hideFinished,
-  onCatchUp, onAddAvailable, onHideFinished, onSetLevel, onReset,
+  onCatchUp, onUnmark, onAddAvailable, onHideFinished, onSetLevel, onReset,
 }: Props) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
@@ -113,9 +115,10 @@ export default function ProgressPanel({
             ) : (
               <>
                 <p className="small">
+                  {alreadyDone && <><strong>{picked}</strong> is marked finished. </>}
                   {behind.length > 0
-                    ? <><strong>{behind.length}</strong> quest{behind.length === 1 ? '' : 's'} before <strong>{picked}</strong> {behind.length === 1 ? 'is' : 'are'} not marked finished yet.</>
-                    : <>Everything before <strong>{picked}</strong> is already marked finished.</>}
+                    ? <><strong>{behind.length}</strong> quest{behind.length === 1 ? '' : 's'} before it {behind.length === 1 ? 'is' : 'are'} not marked finished yet.</>
+                    : <>Everything before it is already marked finished.</>}
                 </p>
                 <div className="catch-up-actions">
                   {/* The common case: you are partway through a chain, so what
@@ -130,6 +133,13 @@ export default function ProgressPanel({
                   <button onClick={() => applyCatchUp(true)} disabled={alreadyDone && behind.length === 0}>
                     I finished it too
                   </button>
+                  {alreadyDone && (
+                    <button
+                      onClick={() => { onUnmark(pickedId); setPicked(null); setQuery(''); }}
+                    >
+                      Not finished after all
+                    </button>
+                  )}
                   <button onClick={() => { setPicked(null); setQuery(''); }}>Cancel</button>
                 </div>
               </>
