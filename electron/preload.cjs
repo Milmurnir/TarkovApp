@@ -8,6 +8,16 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+/**
+ * Durable storage outside the renderer's own profile, so quest progress is not
+ * tied to the local server's port and is not lost when the app folder is
+ * replaced by an update.
+ */
+contextBridge.exposeInMainWorld('appStore', {
+  get: (key) => ipcRenderer.invoke('store:get', key),
+  set: (key, value) => ipcRenderer.invoke('store:set', key, value),
+});
+
 contextBridge.exposeInMainWorld('appUpdates', {
   info: () => ipcRenderer.invoke('update:info'),
   check: () => ipcRenderer.invoke('update:check'),

@@ -8,15 +8,16 @@ import QuestGuide from './components/QuestGuide';
 import UpdateNotice from './components/UpdateNotice';
 import CoopPanel from './components/CoopPanel';
 import CoopNotices from './components/CoopNotices';
-import TrackerPanel from './components/TrackerPanel';
+import ProgressPanel from './components/ProgressPanel';
+import FinishRunDialog from './components/FinishRunDialog';
 import {
-  fetchProgress, readToken, standingOf, storeToken,
-  type TrackerProgress,
-} from './lib/tracker';
+  emptyProgress, loadDurableProgress, loadProgress, saveProgress, standingOf, withCompleted,
+  type Progress,
+} from './lib/progress';
 import { useCoopRun, useMirroredField } from './lib/useCoopRun';
 import type { CheckEntry } from './lib/sharedRun';
 import { buildRoute } from './lib/route';
-import { JsonApiError, fetchMapSlice, type MapSlice } from './lib/jsonApi';
+import { JsonApiError, fetchMapSlice, loadTaskIndex, type MapSlice } from './lib/jsonApi';
 import { fetchQuest, fetchQuestList, searchQuests } from './lib/wiki';
 import { fetchQuestIndex, questsForMap, type QuestIndex } from './lib/questIndex';
 import {
@@ -57,11 +58,25 @@ export default function App() {
   const [clickedSpawn, setClickedSpawn] = useState<Vec3 | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
 
-  const [trackerToken, setTrackerToken] = useState(() => readToken());
-  const [progress, setProgress] = useState<TrackerProgress | null>(null);
-  const [trackerLoading, setTrackerLoading] = useState(false);
-  const [trackerError, setTrackerError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Progress>(() => loadProgress());
   const [hideFinished, setHideFinished] = useState(true);
+  const [finishOpen, setFinishOpen] = useState(false);
+  /** Bumped on every open so the dialog never inherits the last run's ticks. */
+  const [finishSession, setFinishSession] = useState(0);
+
+  /** Every progress change is written through, so a crash loses nothing. */
+  function updateProgress(next: Progress) {
+    setProgress(saveProgress(next));
+  }
+
+  // A fresh install has an empty localStorage but the user-data file is still
+  // there, which is what makes progress outlive replacing the app.
+  useEffect(() => {
+    loadDurableProgress(progress).then((restored) => {
+      if (restored) setProgress(restored);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const coop = useCoopRun();
   /** The checklist is shared during a run and kept locally otherwise. */
@@ -91,26 +106,6 @@ export default function App() {
         setIndexProgress(null);
       })
       .catch((e) => setWikiError(String(e)));
-  }, []);
-
-  function loadProgress(token: string) {
-    if (!token.trim()) return;
-    setTrackerLoading(true);
-    setTrackerError(null);
-    fetchProgress(token)
-      .then((result) => {
-        setProgress(result);
-        storeToken(token);
-        setTrackerToken(token);
-      })
-      .catch((error) => setTrackerError(String(error.message ?? error)))
-      .finally(() => setTrackerLoading(false));
-  }
-
-  // A token saved from last time should just work on startup.
-  useEffect(() => {
-    if (trackerToken) loadProgress(trackerToken);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reload everything map-specific when the map changes.
@@ -158,16 +153,14 @@ export default function App() {
   const suggestions = useMemo(
     () => searchQuests(mapQuestTitles, query)
       .filter((t) => !selectedQuests.includes(t))
-      .filter((t) => !(hideFinished && progress && standingByQuest.get(normalize(t)) === 'completed')),
-    [mapQuestTitles, query, selectedQuests, hideFinished, progress, standingByQuest],
+      .filter((t) => !(hideFinished && standingByQuest.get(normalize(t)) === 'completed')),
+    [mapQuestTitles, query, selectedQuests, hideFinished, standingByQuest],
   );
 
   /** Quests on this map you could start right now, and have not already added. */
-  const availableTitles = useMemo(() => {
-    if (!progress) return [];
-    return mapQuestTitles.filter((title) =>
-      !selectedQuests.includes(title) && standingByQuest.get(normalize(title)) === 'available');
-  }, [progress, mapQuestTitles, selectedQuests, standingByQuest]);
+  const availableTitles = useMemo(() => mapQuestTitles.filter((title) =>
+    !selectedQuests.includes(title) && standingByQuest.get(normalize(title)) === 'available'),
+  [mapQuestTitles, selectedQuests, standingByQuest]);
 
   function pickQuest(title: string) {
     setQuery('');
@@ -182,6 +175,17 @@ export default function App() {
       .then((quest) => setWikiByTitle((current) => ({ ...current, [title]: quest })))
       .catch((error) => setWikiError(String(error.message ?? error)))
       .finally(() => setLoadingQuest(false));
+  }
+
+  const taskIndex = useMemo(() => loadTaskIndex(), [api]);
+
+  /** Records the run's finished quests, then clears the run they belonged to. */
+  function finishRun(ids: string[]) {
+    updateProgress(withCompleted(progress, ids, true));
+    setFinishOpen(false);
+    setSelectedQuests([]);
+    setActiveWiki(null);
+    setSelectedOrder(null);
   }
 
   function addAvailableQuests() {
@@ -428,9 +432,9 @@ export default function App() {
                     <button className="chosen-name" onClick={() => setActiveWiki(title)}>{title}</button>
                     {/* Adding something you have already done, or cannot start
                         yet, is worth saying rather than silently routing it. */}
-                    {progress && standingFor(title) === 'completed' && <span className="tag">done</span>}
-                    {progress && standingFor(title) === 'locked' && <span className="tag">locked</span>}
-                    {progress && standingFor(title) === 'too-low-level' && <span className="tag">level</span>}
+                    {standingFor(title) === 'completed' && <span className="tag">done</span>}
+                    {standingFor(title) === 'locked' && <span className="tag">locked</span>}
+                    {standingFor(title) === 'too-low-level' && <span className="tag">level</span>}
                     {unroutable.includes(title) && <span className="tag">no coords</span>}
                     <button className="chosen-remove" onClick={() => removeQuest(title)} title="Remove">x</button>
                   </li>
@@ -451,24 +455,19 @@ export default function App() {
             {wikiError && <p className="error small">{wikiError}</p>}
           </div>
 
-          <TrackerPanel
+          <ProgressPanel
             progress={progress}
-            token={trackerToken}
-            loading={trackerLoading}
-            error={trackerError}
+            questTitles={questTitles}
+            idByName={taskIndex.idByName}
+            requires={taskIndex.requires}
             mapName={wikiMapName || mapName}
             availableTitles={availableTitles}
             hideFinished={hideFinished}
-            onConnect={(token) => loadProgress(token)}
-            onRefresh={() => loadProgress(trackerToken)}
-            onDisconnect={() => {
-              storeToken('');
-              setTrackerToken('');
-              setProgress(null);
-              setTrackerError(null);
-            }}
+            onCatchUp={(ids) => updateProgress(withCompleted(progress, ids, true))}
             onAddAvailable={addAvailableQuests}
             onHideFinished={setHideFinished}
+            onSetLevel={(level) => updateProgress({ ...progress, playerLevel: level })}
+            onReset={() => updateProgress(emptyProgress())}
           />
 
           <CoopPanel run={coop} />
@@ -606,6 +605,23 @@ export default function App() {
 
           {route && <RouteList route={route} />}
 
+          {selectedQuests.length > 0 && (
+            <div className="panel finish-panel">
+              <div>
+                <h2>Done with this run?</h2>
+                <p className="muted small">
+                  Tick off what you finished and it is remembered, so the next run already knows.
+                </p>
+              </div>
+              <button
+                className="primary"
+                onClick={() => { setFinishSession((n) => n + 1); setFinishOpen(true); }}
+              >
+                Finish run
+              </button>
+            </div>
+          )}
+
           {unroutable.length > 0 && api && (
             <div className="panel warn">
               <p className="small">
@@ -616,6 +632,23 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {finishOpen && (
+        <FinishRunDialog
+          key={finishSession}
+          entries={selectedQuests.map((title) => ({
+            title,
+            // A quest with no coordinates on this map is absent from the slice
+            // but still has an id in the cached index, and is still trackable.
+            taskId: tasks.find((t) => normalize(t.normalizedName) === normalize(title))?.id
+              ?? taskIndex.idByName[normalize(title)] ?? null,
+          }))}
+          progress={progress}
+          requires={taskIndex.requires}
+          onSubmit={finishRun}
+          onClose={() => setFinishOpen(false)}
+        />
+      )}
     </div>
   );
 }

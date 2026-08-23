@@ -111,8 +111,16 @@ function serveStatic(rootDir, urlPath, response) {
   });
 }
 
-/** Starts the server and resolves with its base URL. */
-function startServer(rootDir, port = 0) {
+/**
+ * Starts the server and resolves with its base URL.
+ *
+ * The port is part of the origin, and the origin is what localStorage is keyed
+ * by, so a random port every launch means the renderer wakes up with an empty
+ * store each time: caches, settings and quest progress all gone. A fixed port
+ * keeps that state; a busy one falls back to any free port rather than refusing
+ * to start, which costs that session's stored state but not the app.
+ */
+function startServer(rootDir, port = 0, allowFallback = false) {
   return new Promise((resolve, reject) => {
     const server = http.createServer((request, response) => {
       const parsed = new URL(request.url, 'http://127.0.0.1');
@@ -125,7 +133,14 @@ function startServer(rootDir, port = 0) {
       serveStatic(rootDir, parsed.pathname, response);
     });
 
-    server.on('error', reject);
+    server.on('error', (error) => {
+      if (allowFallback && error.code === 'EADDRINUSE' && port !== 0) {
+        console.warn(`Port ${port} is taken; falling back to a random one. Stored state will not be seen this session.`);
+        startServer(rootDir, 0, false).then(resolve, reject);
+        return;
+      }
+      reject(error);
+    });
     server.listen(port, '127.0.0.1', () => {
       const address = server.address();
       resolve({ server, url: `http://127.0.0.1:${address.port}` });

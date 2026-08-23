@@ -210,20 +210,44 @@ Objectives with no published coordinates are listed under "Not on the map"
 rather than silently dropped. Distances are straight-line, ignoring walls and
 elevation — the *ordering* is the useful output, not the metre count.
 
-## Importing your own quest progress
+## Quest progress
 
-There is no public BSG API for your character, so nothing can read your real
-in-game quest state.
+Kept on this machine, by tarkov.dev task id. Finished quests drop out of the
+search, one button adds every quest on the map you could actually start, and
+quests you add anyway are tagged `done`, `locked` or `level` rather than being
+silently routed. **Finish run** closes out a raid: tick what you finished and it
+is recorded.
 
-The workable option is [TarkovTracker](https://tarkovtracker.io), which has a
-live REST API (`GET /api/v2/token` returns 401 without auth):
+Catching up from a standing start is the part that has to work, or none of it
+gets used. Name the last quest you finished in a chain and everything behind it
+is marked too, walked through the full prerequisite graph. Ticking a few hundred
+boxes by hand is not a feature.
 
-- Base URL `https://tarkovtracker.io/api/v2`
-- Bearer token from your TarkovTracker account settings
-- `GET /progress` returns your task and objective completion state
+There is no public BSG API for your character, so no tool can read the game
+itself — this is your own record, and it is only as current as you keep it.
 
-It reflects what you have ticked off there, not live game state. It would let the
-app hide completed quests. Not implemented yet.
+[TarkovTracker](https://tarkovtracker.io) was the obvious place to keep this
+instead, and its REST API does support reading and writing progress. It was
+built against and then removed: TarkovTracker's own quest list comes from the
+tarkov.dev **GraphQL** API, which has been returning `GraphQL server
+unavailable` since 2026-07-21, so the site currently shows no tasks at all.
+Nothing to tick off there, nothing to import, and no way to check what was
+written. This app's data comes from json.tarkov.dev, which works, so it keeps
+its own record.
+
+### Where it is stored
+
+Both in the renderer's `localStorage` and in a JSON file under the app's
+user-data folder, whichever is newer winning at startup. Two reasons for the
+file:
+
+- **It outlives the app.** Replacing the application folder on an update leaves
+  `%APPDATA%` alone, so progress survives.
+- **It does not depend on the port.** `localStorage` is keyed by origin, and the
+  origin includes the local server's port. That port used to be random per
+  launch, which quietly emptied every cache and setting on every start — the
+  quest index re-downloaded itself each time. The server now takes a fixed port
+  (47821, falling back to any free one if taken) so the origin is stable.
 
 ## Running with a friend
 
@@ -288,6 +312,8 @@ effect. The line is stripped from the notes shown in the popup.
 ```
 scripts/generate_map_data.py   regenerates all map data and SVGs
 scripts/package-ui.mjs         packs dist into the release/ui.zip the updater pulls
+electron/store.cjs             user-data JSON store, so progress outlives an update
+src/lib/progress.ts            quest progress, the prerequisite walk and availability
 relay/worker.js                Cloudflare Worker relaying one shared run per code
 src/lib/sharedRun.ts           shared-state shape and the merge rule both sides apply
 src/lib/sync.ts                relay client: one socket, reconnect, heartbeat

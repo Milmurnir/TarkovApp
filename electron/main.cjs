@@ -4,6 +4,10 @@ const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 const { startServer } = require('./server.cjs');
 const { getUiRoot, registerUpdateIpc } = require('./updater.cjs');
+const { registerStoreIpc } = require('./store.cjs');
+
+/** Chosen to be an unlikely collision; see startServer for why it is fixed. */
+const DEFAULT_PORT = 47821;
 
 let serverHandle = null;
 let mainWindow = null;
@@ -16,10 +20,10 @@ async function createWindow() {
 
   let url;
   try {
-    // A fixed port is only used for smoke-testing the packaged app; normally
-    // the server takes any free port.
-    const port = Number(process.env.TQR_PORT) || 0;
-    const started = await startServer(distDir, port);
+    // A stable port means a stable origin, which is what lets the renderer's
+    // stored state survive a restart at all. TQR_PORT overrides it for tests.
+    const port = Number(process.env.TQR_PORT) || DEFAULT_PORT;
+    const started = await startServer(distDir, port, true);
     serverHandle = started.server;
     url = started.url;
   } catch (error) {
@@ -56,6 +60,7 @@ async function createWindow() {
 }
 
 registerUpdateIpc(() => mainWindow);
+registerStoreIpc();
 
 app.whenReady().then(createWindow);
 

@@ -1,0 +1,176 @@
+import type { Task } from './types';
+
+/**
+ * Your quest progress, kept on this machine.
+ *
+ * There is no public BSG API for your character, so no tool can read the game.
+ * TarkovTracker was the obvious stand-in until its own quest list turned out to
+ * depend on the tarkov.dev GraphQL API, which has been down since 2026-07-21 —
+ * their site currently shows no tasks at all, so there is nothing to tick off
+ * there and nothing to import. This app already has working quest data and the
+ * whole prerequisite graph, so it keeps its own record instead.
+ *
+ * Stored by tarkov.dev task id, which is the same identifier the quest data
+ * uses, so nothing has to be re-matched by name later.
+ */
+
+const KEY = 'tarkov-progress-v1';
+
+/**
+ * Durable storage the Electron shell provides, outside the renderer's profile.
+ * Absent in a plain browser, where localStorage is all there is.
+ */
+interface AppStore {
+  get: (key: string) => Promise<unknown>;
+  set: (key: string, value: unknown) => Promise<boolean>;
+}
+
+declare global {
+  interface Window {
+    appStore?: AppStore;
+  }
+}
+
+function store(): AppStore | null {
+  return typeof window !== 'undefined' && window.appStore ? window.appStore : null;
+}
+
+interface StoredProgress {
+  completed: string[];
+  playerLevel: number | null;
+  updatedAt: number;
+}
+
+function toStored(progress: Progress): StoredProgress {
+  return {
+    completed: [...progress.completed],
+    playerLevel: progress.playerLevel,
+    updatedAt: progress.updatedAt,
+  };
+}
+
+function fromStored(raw: any): Progress | null {
+  if (!raw || !Array.isArray(raw.completed)) return null;
+  return {
+    completed: new Set(raw.completed.filter((id: unknown) => typeof id === 'string')),
+    playerLevel: typeof raw.playerLevel === 'number' ? raw.playerLevel : null,
+    updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
+  };
+}
+
+export interface Progress {
+  completed: Set<string>;
+  /** Used to tell "available" from "too low level"; null means do not check. */
+  playerLevel: number | null;
+  updatedAt: number;
+}
+
+export function emptyProgress(): Progress {
+  return { completed: new Set(), playerLevel: null, updatedAt: 0 };
+}
+
+/** Reads localStorage only: synchronous, so the first render has something. */
+export function loadProgress(): Progress {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return (raw && fromStored(JSON.parse(raw))) || emptyProgress();
+  } catch {
+    return emptyProgress();
+  }
+}
+
+/**
+ * The copy in the user-data folder, which is the one that survives the app
+ * being replaced. Returns it only when it is newer than what is already loaded,
+ * so a fresh install picks up the old progress without a later change here
+ * being overwritten by a stale file.
+ */
+export async function loadDurableProgress(current: Progress): Promise<Progress | null> {
+  const bridge = store();
+  if (!bridge) return null;
+  try {
+    const durable = fromStored(await bridge.get('progress'));
+    if (durable && durable.updatedAt > current.updatedAt) return durable;
+  } catch {
+    // A missing or unreadable file just means nothing to restore.
+  }
+  return null;
+}
+
+export function saveProgress(progress: Progress): Progress {
+  const stored = { ...progress, updatedAt: Date.now() };
+  const serialisable = toStored(stored);
+
+  try {
+    localStorage.setItem(KEY, JSON.stringify(serialisable));
+  } catch {
+    // A full quota should not lose the in-memory state.
+  }
+  // Written to both: localStorage is what the next render reads, the file is
+  // what an update or a changed port cannot take away.
+  store()?.set('progress', serialisable).catch(() => {
+    // Reported nowhere on purpose; localStorage still holds this session.
+  });
+  return stored;
+}
+
+export function withCompleted(progress: Progress, ids: string[], done: boolean): Progress {
+  const completed = new Set(progress.completed);
+  for (const id of ids) {
+    if (done) completed.add(id);
+    else completed.delete(id);
+  }
+  return { ...progress, completed };
+}
+
+/** Why a quest is not worth adding to the route right now. */
+export type TaskStanding = 'available' | 'completed' | 'locked' | 'too-low-level';
+
+export function standingOf(task: Task, progress: Progress): TaskStanding {
+  if (!task.id) return 'available';
+  if (progress.completed.has(task.id)) return 'completed';
+
+  // A prerequisite only counts as met when it is actually finished. The
+  // prerequisite itself need not be on this map, which is why ids are compared
+  // rather than looking the quest up.
+  const locked = task.taskRequirements.some((requirement) => {
+    const id = requirement.task?.id;
+    if (!id) return false;
+    const wants = requirement.status.length > 0 ? requirement.status : ['complete'];
+    if (!wants.includes('complete')) return false;
+    return !progress.completed.has(id);
+  });
+  if (locked) return 'locked';
+
+  if (progress.playerLevel !== null && task.minPlayerLevel !== null
+    && progress.playerLevel < task.minPlayerLevel) {
+    return 'too-low-level';
+  }
+  return 'available';
+}
+
+/**
+ * Every quest that must be finished before `taskId`, walking the whole chain
+ * and skipping anything already done. This is what makes catching up bearable:
+ * mark the last quest you actually did in a chain and the rest follows, instead
+ * of ticking a hundred boxes by hand.
+ */
+export function missingPrerequisites(
+  taskId: string,
+  requires: Record<string, string[]>,
+  progress: Progress,
+): string[] {
+  const missing: string[] = [];
+  const seen = new Set<string>([taskId]);
+  const queue = [...(requires[taskId] ?? [])];
+
+  while (queue.length > 0) {
+    const id = queue.shift() as string;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (progress.completed.has(id)) continue;
+    missing.push(id);
+    queue.push(...(requires[id] ?? []));
+  }
+  return missing;
+}

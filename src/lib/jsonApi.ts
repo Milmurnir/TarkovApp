@@ -15,6 +15,7 @@ import type { MapExtract, MapSpawn, Task, TaskObjective, Vec3 } from './types';
  */
 const BASE = '/api/json';
 const CACHE_PREFIX = 'tarkov-json-slice-v3:';
+const GRAPH_KEY = 'tarkov-task-index-v2';
 const LANGUAGE = 'en';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
@@ -246,6 +247,25 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
     });
   }
 
+  // Every task, not just this map's slice: prerequisite chains run across maps,
+  // and a quest with no coordinates here still has an id worth writing back.
+  // Ids and names only, which stays small enough to keep around.
+  const index: TaskIndex = { requires: {}, idByName: {} };
+  for (const raw of asList<any>(tasksPayload?.data?.tasks)) {
+    if (typeof raw?.id !== 'string') continue;
+    index.requires[raw.id] = (raw.taskRequirements ?? [])
+      .map((req: any) => (typeof req.task === 'string' ? req.task : req.task?.id))
+      .filter((id: any): id is string => typeof id === 'string');
+    if (typeof raw.normalizedName === 'string') {
+      index.idByName[raw.normalizedName.toLowerCase().replace(/[^a-z0-9]/g, '')] = raw.id;
+    }
+  }
+  try {
+    localStorage.setItem(GRAPH_KEY, JSON.stringify(index));
+  } catch {
+    // A full cache is not worth failing the load over.
+  }
+
   const slice: MapSlice = {
     mapName,
     spawns,
@@ -262,4 +282,23 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
     // Quota exceeded is not fatal; it just refetches next time.
   }
   return slice;
+}
+
+/** Every task's prerequisites and id, cached from the last successful load. */
+export interface TaskIndex {
+  /** Task id -> ids of the tasks it requires. */
+  requires: Record<string, string[]>;
+  /** Normalised quest name -> task id, for quests with no coordinates here. */
+  idByName: Record<string, string>;
+}
+
+export function loadTaskIndex(): TaskIndex {
+  try {
+    const raw = localStorage.getItem(GRAPH_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && parsed.requires && parsed.idByName) return parsed as TaskIndex;
+  } catch {
+    // Fall through to an empty index; it is rebuilt on the next load.
+  }
+  return { requires: {}, idByName: {} };
 }
