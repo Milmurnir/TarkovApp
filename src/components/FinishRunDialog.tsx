@@ -7,6 +7,8 @@ interface Props {
   progress: Progress;
   /** Task id -> the ids it requires, for walking a chain backwards. */
   requires: Record<string, string[]>;
+  /** In a shared run the quest list is not cleared; it is not yours alone. */
+  shared: boolean;
   onSubmit: (ids: string[]) => void;
   onClose: () => void;
 }
@@ -18,7 +20,7 @@ interface Props {
  * assumed here would be a guess written into your account.
  */
 export default function FinishRunDialog({
-  entries, progress, requires, onSubmit, onClose,
+  entries, progress, requires, shared, onSubmit, onClose,
 }: Props) {
   const [done, setDone] = useState<Record<string, boolean>>({});
   const [backfill, setBackfill] = useState<Record<string, boolean>>({});
@@ -58,6 +60,7 @@ export default function FinishRunDialog({
         <p className="small muted">
           Tick what you finished. Nothing is assumed — the app cannot see the game, only you know how
           the raid went.
+          {shared && ' Only your own record changes, and the run stays up while your friend is in it.'}
         </p>
 
         <ul className="finish-list">

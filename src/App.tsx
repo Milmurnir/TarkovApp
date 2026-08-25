@@ -204,9 +204,15 @@ export default function App() {
   function finishRun(ids: string[]) {
     updateProgress(withCompleted(progress, ids, true));
     setFinishOpen(false);
-    setSelectedQuests([]);
-    setActiveWiki(null);
-    setSelectedOrder(null);
+
+    // Finishing is personal, because progress is. Clearing the quest list is a
+    // shared change, so in a co-op run it would wipe a friend's screen before
+    // he had ticked off his own — which is exactly what it did.
+    if (!coop.code) {
+      setSelectedQuests([]);
+      setActiveWiki(null);
+      setSelectedOrder(null);
+    }
   }
 
   /**
@@ -754,6 +760,7 @@ export default function App() {
           }))}
           progress={progress}
           requires={taskIndex.requires}
+          shared={Boolean(coop.code)}
           onSubmit={finishRun}
           onClose={() => setFinishOpen(false)}
         />
