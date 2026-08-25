@@ -81,16 +81,24 @@ export function loadProgress(): Progress {
 
 /**
  * The copy in the user-data folder, which is the one that survives the app
- * being replaced. Returns it only when it is newer than what is already loaded,
- * so a fresh install picks up the old progress without a later change here
- * being overwritten by a stale file.
+ * being replaced. Returns it when it is newer than what is already loaded, so
+ * a fresh install picks up the old progress without a later change here being
+ * overwritten by a stale file.
+ *
+ * Also returns it when it simply has more completed quests, even if its clock
+ * is behind: a completed write to localStorage racing a failed write to this
+ * file (two app instances open at once, a crash mid-save) can otherwise leave
+ * an emptier record with a newer timestamp that would shadow the real one
+ * forever, since nothing after that point would ever look "newer" again.
  */
 export async function loadDurableProgress(current: Progress): Promise<Progress | null> {
   const bridge = store();
   if (!bridge) return null;
   try {
     const durable = fromStored(await bridge.get('progress'));
-    if (durable && durable.updatedAt > current.updatedAt) return durable;
+    if (durable && (durable.updatedAt > current.updatedAt || durable.completed.size > current.completed.size)) {
+      return durable;
+    }
   } catch {
     // A missing or unreadable file just means nothing to restore.
   }
