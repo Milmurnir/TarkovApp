@@ -35,6 +35,9 @@ export default function RouteList({ route }: { route: Route }) {
               </div>
               <div className="muted small">
                 {stop.questName ? `${stop.label} · ` : ''}{stop.description}
+                {stop.count !== null && stop.count !== undefined && stop.count > 1 && (
+                  <span className="count-badge">×{stop.count}</span>
+                )}
               </div>
               {stop.legDistance > 0 && (
                 <div className="muted small">

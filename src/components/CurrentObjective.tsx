@@ -49,7 +49,13 @@ export default function CurrentObjective({ route, selectedOrder, onSelect }: Pro
             {current.optional && <span className="tag">optional</span>}
           </div>
           {current.questName && <div className="muted small">{current.label}</div>}
-          <p className="small">{current.description}</p>
+          <p className="small">
+            {current.description}
+            {/* Three of a thing in one spot is three trips, not one. */}
+            {current.count !== null && current.count !== undefined && current.count > 1 && (
+              <span className="count-badge">×{current.count}</span>
+            )}
+          </p>
         </div>
       </div>
 

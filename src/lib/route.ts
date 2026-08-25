@@ -148,6 +148,7 @@ export function buildRoute(
       optional: stop.objective.optional,
       keys: (stop.objective.requiredKeys ?? []).flat().map((k) => k.name),
       questName: stop.questName,
+      count: stop.objective.count ?? null,
     });
     previous = stop.position;
   });

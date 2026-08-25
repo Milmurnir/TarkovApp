@@ -213,13 +213,35 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
 
       if (zones.length > 0) relevant = true;
 
+      // Quest items carry their own coordinates rather than zones.
+      const itemSpots = (objective.possibleLocations ?? [])
+        .filter((loc: any) => idToName.get(loc.map) === mapName)
+        .flatMap((loc: any) => (loc.positions ?? []) as Vec3[]);
+      if (itemSpots.length > 0) relevant = true;
+
+      // Every map this objective touches, not just the one being drawn: a quest
+      // like Chumming wants the same thing stashed on Customs *and* on Woods,
+      // and keeping only the current map hides the second trip entirely.
+      const everyMap: string[] = Array.from(new Set([
+        ...(objective.maps ?? []).map((id: any) => idToName.get(id)),
+        ...(objective.zones ?? []).map((z: any) => idToName.get(z.map)),
+        ...(objective.possibleLocations ?? []).map((loc: any) => idToName.get(loc.map)),
+      ].filter((name): name is string => Boolean(name))));
+
       objectives.push({
         id: objective.id ?? null,
         type: objective.type,
         description: describe(objective, taskText),
         optional: Boolean(objective.optional),
-        maps: zones.length > 0 ? [{ normalizedName: mapName, name: mapName }] : [],
+        maps: everyMap.map((normalizedName) => ({ normalizedName, name: normalizedName })),
         zones,
+        // How many of the thing, which is the difference between one stash and
+        // three trips to the same cupboard.
+        count: typeof objective.count === 'number' ? objective.count : null,
+        foundInRaid: typeof objective.foundInRaid === 'boolean' ? objective.foundInRaid : null,
+        possibleLocations: itemSpots.length > 0
+          ? [{ map: { normalizedName: mapName }, positions: itemSpots }]
+          : null,
         exitName: objective.exitName ? translate(taskText, objective.exitName) : null,
       });
     }

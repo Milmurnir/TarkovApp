@@ -135,6 +135,8 @@ export default function App() {
 
   const currentMap = maps.find((m) => m.normalizedName === mapName) ?? null;
   const wikiMapName = currentMap?.wikiName ?? mapData?.wikiName ?? '';
+  /** Used to spot which map an objective's text is talking about. */
+  const allMapNames = useMemo(() => maps.map((m) => m.wikiName).filter(Boolean), [maps]);
 
   const taskIndex = useMemo(() => loadTaskIndex(), [api]);
 
@@ -646,6 +648,9 @@ export default function App() {
               title={activeWiki}
               wikiUrl={wikiByTitle[activeWiki]?.wikiUrl}
               accent={questAccent(taskNameFor(activeWiki))}
+              objectives={wikiByTitle[activeWiki]?.objectives ?? []}
+              mapNames={allMapNames}
+              currentMap={wikiMapName || null}
             />
           )}
 
@@ -662,6 +667,8 @@ export default function App() {
             onCheck={setCheck}
             me={{ id: coop.peerId, name: coop.name }}
             shared={coop.others.length > 0}
+            mapNames={allMapNames}
+            currentMap={wikiMapName || null}
           />
 
           {route && <RouteList route={route} />}

@@ -105,6 +105,8 @@ export interface RouteStop {
   keys?: string[];
   /** Which quest this stop belongs to, when routing several at once. */
   questName?: string;
+  /** How many of the thing, when the objective asks for more than one. */
+  count?: number | null;
 }
 
 export interface Route {

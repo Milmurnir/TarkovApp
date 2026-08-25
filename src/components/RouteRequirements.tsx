@@ -1,5 +1,6 @@
 import type { WikiQuest } from '../lib/types';
 import type { CheckEntry } from '../lib/sharedRun';
+import ObjectiveList from './ObjectiveList';
 
 interface Props {
   quests: WikiQuest[];
@@ -15,6 +16,8 @@ interface Props {
   me: { id: string; name: string };
   /** True when a friend is in the run and claims are worth showing. */
   shared: boolean;
+  mapNames: string[];
+  currentMap: string | null;
 }
 
 interface Entry {
@@ -50,7 +53,7 @@ function merge(quests: WikiQuest[], pick: (q: WikiQuest) => { label: string; fou
  * raid.
  */
 export default function RouteRequirements({
-  quests, activeTitle, onSelect, colorOf, checks, onCheck, me, shared,
+  quests, activeTitle, onSelect, colorOf, checks, onCheck, me, shared, mapNames, currentMap,
 }: Props) {
   if (quests.length === 0) return null;
 
@@ -107,9 +110,11 @@ export default function RouteRequirements({
               {quest.title}
               {quest.trader && <span className="muted small"> · {quest.trader}</span>}
             </button>
-            <ul>
-              {quest.objectives.map((objective, i) => <li key={i}>{objective.trim()}</li>)}
-            </ul>
+            <ObjectiveList
+              objectives={quest.objectives}
+              mapNames={mapNames}
+              currentMap={currentMap}
+            />
           </div>
         ))}
       </section>

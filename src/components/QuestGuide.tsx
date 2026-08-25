@@ -1,17 +1,24 @@
 import { useEffect, useState } from 'react';
 import { fetchQuestGuide, type QuestGuide as Guide } from '../lib/questGuide';
+import ObjectiveList from './ObjectiveList';
 
 interface Props {
   title: string | null;
   wikiUrl?: string;
   accent?: string;
+  /** Shown above the wiki text: the guide is where you look mid-raid. */
+  objectives?: string[];
+  mapNames?: string[];
+  currentMap?: string | null;
 }
 
 /**
  * The wiki's Guide section for the selected quest: quest items table, the
  * walkthrough text and the screenshots, rendered as the wiki lays them out.
  */
-export default function QuestGuide({ title, wikiUrl, accent }: Props) {
+export default function QuestGuide({
+  title, wikiUrl, accent, objectives = [], mapNames = [], currentMap = null,
+}: Props) {
   const [guide, setGuide] = useState<Guide | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +56,8 @@ export default function QuestGuide({ title, wikiUrl, accent }: Props) {
         <h2>{title} — guide</h2>
         {wikiUrl && <a href={wikiUrl} target="_blank" rel="noreferrer">open on wiki ↗</a>}
       </div>
+
+      <ObjectiveList objectives={objectives} mapNames={mapNames} currentMap={currentMap} />
 
       {loading && <p className="muted small">Loading guide from the wiki...</p>}
       {error && !loading && <p className="muted small">{error}</p>}
