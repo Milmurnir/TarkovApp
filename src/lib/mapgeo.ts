@@ -78,3 +78,33 @@ export function svgToGame(
 export function distance2d(a: Vec3, b: Vec3): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
+
+/**
+ * Shortest distance from a point to a path, in game metres.
+ *
+ * Measured against the segments rather than the stops, because "on the way"
+ * means beside the line you walk, not near a corner of it.
+ */
+export function distanceToPath(point: Vec3, path: Vec3[]): number {
+  if (path.length === 0) return Infinity;
+  if (path.length === 1) return distance2d(point, path[0]);
+
+  let best = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    best = Math.min(best, distanceToSegment(point, path[i], path[i + 1]));
+  }
+  return best;
+}
+
+function distanceToSegment(point: Vec3, from: Vec3, to: Vec3): number {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const lengthSquared = dx * dx + dz * dz;
+  if (lengthSquared === 0) return distance2d(point, from);
+
+  // How far along the segment the closest point lies, clamped to its ends.
+  const t = Math.max(0, Math.min(1,
+    ((point.x - from.x) * dx + (point.z - from.z) * dz) / lengthSquared));
+
+  return Math.hypot(point.x - (from.x + t * dx), point.z - (from.z + t * dz));
+}

@@ -39,6 +39,12 @@ DATA_DIR = os.path.join(ROOT, 'public', 'data')
 MAPS_DIR = os.path.join(ROOT, 'public', 'maps')
 
 MAPS_JSON = 'https://raw.githubusercontent.com/the-hideout/tarkov-dev/main/src/data/maps.json'
+# Loot container positions come live from json.tarkov.dev, but it identifies each
+# container only by its BSG template id and publishes no names for them. SPT's
+# locale is the source that turns those ids into "Jacket" and "Weapon box".
+TARKOV_MAPS_API = 'https://json.tarkov.dev/regular/maps'
+SPT_LOCALE = ('https://raw.githubusercontent.com/sp-tarkov/server-csharp/main/'
+              'Libraries/SPTarkov.Server.Assets/SPT_Data/database/locales/global/en.json')
 SPT_BASE = ('https://raw.githubusercontent.com/sp-tarkov/server-csharp/main/'
             'Libraries/SPTarkov.Server.Assets/SPT_Data/database/locations')
 
@@ -248,12 +254,47 @@ def main():
         print(f'{normalized:20s} spawns={len(spawns):4d} snipers={len(sniper_spawns):3d} '
               f'extracts={len(extracts):3d} labels={len(labels):3d} inside={accuracy:.1%}')
 
+    write_container_names()
+
     with open(os.path.join(DATA_DIR, 'maps-index.json'), 'w', encoding='utf-8') as handle:
         json.dump(index, handle, indent=1)
 
     print(f'\nwrote {len(index)} maps')
     for problem in problems:
         print('PROBLEM:', problem)
+
+
+def write_container_names():
+    """Names for every loot container id the live map data mentions."""
+    try:
+        maps = get(TARKOV_MAPS_API)['data']['maps']
+        locale = get(SPT_LOCALE)
+    except Exception as error:
+        print(f'PROBLEM: could not build loot container names: {error}')
+        return
+
+    if isinstance(maps, dict):
+        maps = list(maps.values())
+
+    ids = set()
+    for entry in maps:
+        for container in entry.get('lootContainers') or []:
+            template = container.get('lootContainer')
+            if isinstance(template, str):
+                ids.add(template)
+
+    names = {}
+    for template in sorted(ids):
+        name = locale.get(f'{template} Name') or locale.get(template)
+        if name:
+            names[template] = name
+
+    path = os.path.join(DATA_DIR, 'loot-containers.json')
+    with open(path, 'w', encoding='utf-8') as handle:
+        json.dump(names, handle, indent=1, sort_keys=True)
+
+    missing = len(ids) - len(names)
+    print(f'loot containers      named={len(names):3d} unnamed={missing:3d}')
 
 
 if __name__ == '__main__':

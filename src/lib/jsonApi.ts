@@ -1,4 +1,4 @@
-import type { MapExtract, MapSpawn, Task, TaskObjective, Vec3 } from './types';
+import type { LootContainer, MapExtract, MapSpawn, Task, TaskObjective, Vec3 } from './types';
 
 /**
  * Client for json.tarkov.dev.
@@ -17,7 +17,7 @@ const BASE = '/api/json';
 // The two are versioned together on purpose: the index is only written during a
 // full fetch, so leaving the slice cache warm across an index change would leave
 // the index empty and every quest looking unavailable.
-const CACHE_PREFIX = 'tarkov-json-slice-v5:';
+const CACHE_PREFIX = 'tarkov-json-slice-v6:';
 const GRAPH_KEY = 'tarkov-task-index-v4';
 const LANGUAGE = 'en';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
@@ -32,6 +32,7 @@ export interface MapSlice {
   spawns: MapSpawn[];
   sniperSpawns: SniperSpawn[];
   extracts: MapExtract[];
+  lootContainers: LootContainer[];
   tasks: Task[];
   fetchedAt: number;
   stale: boolean;
@@ -67,6 +68,22 @@ async function getJson(path: string): Promise<any> {
     throw new JsonApiError(`json.tarkov.dev returned ${response.status}.`, await response.text().catch(() => ''));
   }
   return response.json();
+}
+
+/**
+ * Clears slices and indexes left by older versions of this app.
+ *
+ * They are never read again, and localStorage is a few megabytes shared with
+ * the quest index and every cached wiki page — a slice write has already been
+ * seen to fail silently for want of room.
+ */
+function forgetOldCaches(): void {
+  const live = [CACHE_PREFIX, GRAPH_KEY];
+  for (const key of Object.keys(localStorage)) {
+    const stale = (key.startsWith('tarkov-json-slice-v') || key.startsWith('tarkov-task-index-v'))
+      && !live.some((prefix) => key.startsWith(prefix));
+    if (stale) localStorage.removeItem(key);
+  }
 }
 
 function readCache(mapName: string): MapSlice | null {
@@ -124,6 +141,7 @@ function describe(objective: any, translations: Translations): string {
 
 /** Fetches both datasets and reduces them to what one map needs. */
 export async function fetchMapSlice(mapName: string, force = false): Promise<MapSlice> {
+  forgetOldCaches();
   const cached = readCache(mapName);
   if (cached && !force && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached;
 
@@ -195,6 +213,10 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
           position: sw.position,
         })),
     }));
+
+  const lootContainers: LootContainer[] = (target.lootContainers ?? [])
+    .filter((c: any) => c.position && typeof c.lootContainer === 'string')
+    .map((c: any) => ({ template: c.lootContainer as string, position: c.position as Vec3 }));
 
   // Keep only tasks that have at least one positioned objective on this map.
   const tasks: Task[] = [];
@@ -305,6 +327,7 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
     spawns,
     sniperSpawns,
     extracts,
+    lootContainers,
     tasks,
     fetchedAt: Date.now(),
     stale: false,

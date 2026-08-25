@@ -8,6 +8,8 @@ import QuestGuide from './components/QuestGuide';
 import UpdateNotice from './components/UpdateNotice';
 import CoopPanel from './components/CoopPanel';
 import CoopNotices from './components/CoopNotices';
+import LootPanel from './components/LootPanel';
+import { loadContainerNames, placeContainers } from './lib/loot';
 import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import {
@@ -61,6 +63,11 @@ export default function App() {
   const [progress, setProgress] = useState<Progress>(() => loadProgress());
   const [hideFinished, setHideFinished] = useState(true);
   const [finishOpen, setFinishOpen] = useState(false);
+  const [showLoot, setShowLoot] = useState(false);
+  /** Metres from the route; null means the whole map. */
+  const [lootRadius, setLootRadius] = useState<number | null>(30);
+  const [hiddenLoot, setHiddenLoot] = useState<string[]>([]);
+  const [containerNames, setContainerNames] = useState<Record<string, string>>({});
   /** Bumped on every open so the dialog never inherits the last run's ticks. */
   const [finishSession, setFinishSession] = useState(0);
   /** The last automatic back-fill, kept so it can be undone. */
@@ -297,6 +304,9 @@ export default function App() {
 
   const apiSpawns = useMemo(() => api?.spawns ?? [], [api]);
 
+  useEffect(() => { loadContainerNames().then(setContainerNames); }, []);
+
+
   /**
    * Only Streets tags a 'sniper' category in the API, so the generated data
    * (derived from marksman waves) is the source that covers every map.
@@ -422,6 +432,23 @@ export default function App() {
     }
   }, [selectedQuests, wikiByTitle, loadingQuest]);
 
+  /** Containers with a name and a distance from the route. */
+  const placedLoot = useMemo(
+    () => placeContainers(api?.lootContainers ?? [], containerNames, route ? route.stops.map((s) => s.position) : []),
+    [api, containerNames, route],
+  );
+
+  const visibleLoot = useMemo(() => {
+    if (!showLoot) return [];
+    // With no route there is nothing to be near, so the radius sits inert
+    // rather than filtering everything away.
+    const byRoute = lootRadius === null || !route
+      ? () => true
+      : (container: { fromRoute: number }) => container.fromRoute <= lootRadius;
+
+    return placedLoot.filter((container) => byRoute(container) && !hiddenLoot.includes(container.name));
+  }, [showLoot, placedLoot, lootRadius, hiddenLoot, route]);
+
   return (
     <div className="app">
       <CoopNotices run={coop} />
@@ -533,6 +560,19 @@ export default function App() {
             onReset={() => updateProgress(emptyProgress())}
           />
 
+          <LootPanel
+            containers={placedLoot}
+            shown={visibleLoot}
+            enabled={showLoot}
+            onEnabled={setShowLoot}
+            radius={lootRadius}
+            onRadius={setLootRadius}
+            hasRoute={Boolean(route)}
+            hidden={hiddenLoot}
+            onToggleName={(name) => setHiddenLoot((current) =>
+              current.includes(name) ? current.filter((n) => n !== name) : [...current, name])}
+          />
+
           <CoopPanel run={coop} />
 
           <div className="panel">
@@ -631,6 +671,7 @@ export default function App() {
               labels={mapData.labels}
               spawnPoints={activeZone ? activeZone.spawns.map((sp) => ({ x: sp.position.x, z: sp.position.z })) : []}
               sniperSpawns={showSnipers ? sniperSpawns : []}
+              lootContainers={visibleLoot}
               onPickSpawn={(position) => { setClickedSpawn(position); setSelectedOrder(null); }}
               onSelectStop={(stop) => {
                 setSelectedOrder(stop.order);

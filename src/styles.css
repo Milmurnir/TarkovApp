@@ -390,3 +390,14 @@ button:hover { border-color: var(--accent); }
 .obj-group.here h4 { color: var(--accent); }
 .obj-group ul { margin: 2px 0; padding-left: 18px; }
 .obj-group li { margin: 3px 0; font-size: 13px; }
+
+/* Loot containers and their filters. */
+.loot-radius { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.loot-radius button { font-size: 12px; padding: 4px 10px; }
+.loot-radius button.active { background: var(--accent); color: #0b0f14; border-color: var(--accent); font-weight: 600; }
+
+.loot-kinds { list-style: none; margin: 4px 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.loot-kinds li { padding: 2px 0; }
+.loot-kinds label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
+.loot-kinds input { width: auto; flex: 0 0 auto; }
+.loot-kinds label span:first-of-type { flex: 1; }

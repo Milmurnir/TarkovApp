@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { gameToSvg, svgToGame, type MapProjection, type MapViewBox } from '../lib/mapgeo';
 import type { RouteStop, Vec3 } from '../lib/types';
 import type { MapLabel } from '../lib/mapData';
+import type { PlacedContainer } from '../lib/loot';
 import { questColor } from '../lib/questColor';
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   spawnPoints?: { x: number; z: number }[];
   /** Sniper scav positions, drawn as danger markers. */
   sniperSpawns?: { zoneName: string | null; position: Vec3 }[];
+  /** Loot containers to draw, already filtered by the loot panel. */
+  lootContainers?: PlacedContainer[];
   /** Called with game coordinates when the map itself is clicked. */
   onPickSpawn?: (position: Vec3) => void;
   /** Called when a route marker is clicked. */
@@ -44,7 +47,7 @@ const DRAG_THRESHOLD = 5;
 
 export default function MapView({
   svgUrl, viewBox, projection,
-  stops, labels = [], spawnPoints = [], sniperSpawns = [],
+  stops, labels = [], spawnPoints = [], sniperSpawns = [], lootContainers = [],
   onPickSpawn, onSelectStop, selectedOrder = null, highlightQuest = null,
 }: Props) {
   const [zoom, setZoom] = useState(1);
@@ -162,6 +165,21 @@ export default function MapView({
             return (
               <circle key={`sp-${i}`} cx={p.x} cy={p.y} r={2} fill="#4ade80" opacity={0.35}
                 style={{ pointerEvents: 'none' }} />
+            );
+          })}
+
+          {/* Under the route and the markers: loot is context, not the plan. */}
+          {lootContainers.map((container, i) => {
+            const p = gameToSvg(container.position, projection, viewBox);
+            return (
+              <g key={`loot-${i}`} transform={`translate(${p.x} ${p.y})`} style={{ pointerEvents: 'none' }}>
+                <rect x={-2.5} y={-2.5} width={5} height={5} rx={1}
+                  fill="#c9a227" fillOpacity={0.75} stroke="#1a1204" strokeWidth={0.6} />
+                <title>
+                  {container.name}
+                  {Number.isFinite(container.fromRoute) && ` — ${Math.round(container.fromRoute)} m off the route`}
+                </title>
+              </g>
             );
           })}
 

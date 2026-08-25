@@ -33,6 +33,13 @@ export interface MapTransit {
   position: Vec3 | null;
 }
 
+/** A lootable container placed on a map. */
+export interface LootContainer {
+  /** BSG template id; names live in public/data/loot-containers.json. */
+  template: string;
+  position: Vec3;
+}
+
 export interface TaskZone {
   id: string;
   map: { normalizedName: string } | null;
