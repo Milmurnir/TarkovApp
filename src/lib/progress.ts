@@ -201,3 +201,63 @@ export function missingPrerequisites(
   }
   return missing;
 }
+
+/**
+ * Sharing progress between players.
+ *
+ * A file rather than a paste-able code on purpose: a few hundred task ids is
+ * several kilobytes, past what chat apps accept in a message, and an attachment
+ * survives being forwarded without anyone trimming it.
+ */
+const EXPORT_FORMAT = 'tarkov-quest-router-progress';
+
+export interface ProgressExport {
+  completed: string[];
+  playerLevel: number | null;
+  exportedAt: number;
+}
+
+export function exportProgress(progress: Progress): string {
+  return JSON.stringify({
+    format: EXPORT_FORMAT,
+    version: 1,
+    exportedAt: Date.now(),
+    playerLevel: progress.playerLevel,
+    completed: [...progress.completed],
+  }, null, 2);
+}
+
+/** Suggested filename, dated so several exports do not overwrite each other. */
+export function exportFilename(): string {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return `tarkov-progress-${stamp}.json`;
+}
+
+/**
+ * Reads an exported file. Returns null for anything that is not one, rather
+ * than half-importing a file that happens to be JSON.
+ */
+export function parseProgressExport(text: string): ProgressExport | null {
+  let raw: any;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+
+  // The bare shape the app stores is accepted too: someone who found
+  // progress.json in the user-data folder should not be told it is invalid.
+  const looksLikeExport = raw?.format === EXPORT_FORMAT;
+  if (!looksLikeExport && !Array.isArray(raw?.completed)) return null;
+  if (!Array.isArray(raw.completed)) return null;
+
+  const completed = raw.completed.filter((id: unknown): id is string => typeof id === 'string');
+  if (completed.length === 0 && raw.completed.length > 0) return null;
+
+  return {
+    completed,
+    playerLevel: typeof raw.playerLevel === 'number' ? raw.playerLevel : null,
+    exportedAt: typeof raw.exportedAt === 'number' ? raw.exportedAt
+      : typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
+  };
+}

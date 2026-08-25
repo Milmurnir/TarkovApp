@@ -372,3 +372,6 @@ button:hover { border-color: var(--accent); }
 }
 .backfill-note .muted-button { color: var(--accent); text-decoration: underline; }
 .catch-up-actions { flex-wrap: wrap; }
+
+.share-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.share-actions button { font-size: 12px; padding: 5px 10px; }

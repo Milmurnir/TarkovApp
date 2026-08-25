@@ -1,5 +1,8 @@
-import { useMemo, useState } from 'react';
-import { missingPrerequisites, type Progress } from '../lib/progress';
+import { useMemo, useRef, useState } from 'react';
+import {
+  exportFilename, exportProgress, missingPrerequisites, parseProgressExport,
+  type Progress, type ProgressExport,
+} from '../lib/progress';
 import { searchQuests } from '../lib/wiki';
 
 interface Props {
@@ -19,6 +22,7 @@ interface Props {
   onAddAvailable: () => void;
   onHideFinished: (hide: boolean) => void;
   onSetLevel: (level: number | null) => void;
+  onImport: (payload: ProgressExport, mode: 'replace' | 'merge') => void;
   onReset: () => void;
 }
 
@@ -35,11 +39,37 @@ function normalize(value: string): string {
  */
 export default function ProgressPanel({
   progress, questTitles, idByName, requires, mapName, availableTitles, hideFinished,
-  onCatchUp, onUnmark, onAddAvailable, onHideFinished, onSetLevel, onReset,
+  onCatchUp, onUnmark, onAddAvailable, onHideFinished, onSetLevel, onImport, onReset,
 }: Props) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [incoming, setIncoming] = useState<{ payload: ProgressExport; name: string } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  /** Ids this build's quest data knows, to spot a file from another source. */
+  const knownIds = useMemo(() => new Set(Object.values(idByName)), [idByName]);
+
+  function saveExport() {
+    const blob = new Blob([exportProgress(progress)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = exportFilename();
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function readFile(file: File) {
+    setImportError(null);
+    const payload = parseProgressExport(await file.text());
+    if (!payload) {
+      setImportError(`${file.name} is not a progress export.`);
+      return;
+    }
+    setIncoming({ payload, name: file.name });
+  }
 
   const suggestions = useMemo(
     () => (query.trim().length > 1 ? searchQuests(questTitles, query).slice(0, 8) : []),
@@ -161,6 +191,68 @@ export default function ProgressPanel({
         <input type="checkbox" checked={hideFinished} onChange={(event) => onHideFinished(event.target.checked)} />
         Hide finished quests from the search
       </label>
+
+      <section className="section">
+        <h3>Share</h3>
+        {incoming ? (
+          <div className="catch-up">
+            <p className="small">
+              <strong>{incoming.name}</strong> holds {incoming.payload.completed.length} finished
+              quest{incoming.payload.completed.length === 1 ? '' : 's'}
+              {incoming.payload.playerLevel !== null && `, level ${incoming.payload.playerLevel}`}.
+              {' '}You have {progress.completed.size}.
+            </p>
+            {/* A file from a different build or a different game is worth
+                catching before it is merged in and forgotten about. */}
+            {(() => {
+              const unknown = incoming.payload.completed.filter((id) => !knownIds.has(id)).length;
+              if (unknown === 0) return null;
+              return (
+                <p className="muted small">
+                  {unknown === 1
+                    ? 'One of them is not a quest this build knows. It is kept'
+                    : `${unknown} of them are not quests this build knows. They are kept`}
+                  , in case the quest data catches up later.
+                </p>
+              );
+            })()}
+            <div className="catch-up-actions">
+              <button className="primary" onClick={() => { onImport(incoming.payload, 'merge'); setIncoming(null); }}>
+                Add to mine
+              </button>
+              <button onClick={() => { onImport(incoming.payload, 'replace'); setIncoming(null); }}>
+                Replace mine
+              </button>
+              <button onClick={() => setIncoming(null)}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="muted small">
+              Send your progress to a friend as a file, or take theirs.
+            </p>
+            <div className="share-actions">
+              <button onClick={saveExport} disabled={progress.completed.size === 0}>
+                Export to file
+              </button>
+              <button onClick={() => fileInput.current?.click()}>Import from file</button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/json,.json"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) readFile(file);
+                  // Cleared so picking the same file twice still fires.
+                  event.target.value = '';
+                }}
+              />
+            </div>
+            {importError && <p className="error small">{importError}</p>}
+          </>
+        )}
+      </section>
 
       {progress.completed.size > 0 && (
         <div className="progress-reset">

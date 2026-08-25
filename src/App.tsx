@@ -12,7 +12,7 @@ import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import {
   emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, saveProgress,
-  standingById, withCompleted, type Progress,
+  standingById, withCompleted, type Progress, type ProgressExport,
 } from './lib/progress';
 import { useCoopRun, useMirroredField } from './lib/useCoopRun';
 import type { CheckEntry } from './lib/sharedRun';
@@ -216,6 +216,21 @@ export default function App() {
 
     updateProgress(withCompleted(progress, missing, true));
     setLastBackfill({ title, ids: missing });
+  }
+
+  /**
+   * Takes a friend's exported progress. Merging keeps both records; replacing
+   * adopts theirs wholesale, including their level, which is what someone
+   * handed a save actually wants.
+   */
+  function importProgress(payload: ProgressExport, mode: 'replace' | 'merge') {
+    const base = mode === 'replace' ? emptyProgress() : progress;
+    const merged = withCompleted(base, payload.completed, true);
+    updateProgress({
+      ...merged,
+      playerLevel: mode === 'replace' ? payload.playerLevel : (progress.playerLevel ?? payload.playerLevel),
+    });
+    setLastBackfill(null);
   }
 
   function undoBackfill() {
@@ -512,6 +527,7 @@ export default function App() {
             onAddAvailable={addAvailableQuests}
             onHideFinished={setHideFinished}
             onSetLevel={(level) => updateProgress({ ...progress, playerLevel: level })}
+            onImport={importProgress}
             onReset={() => updateProgress(emptyProgress())}
           />
 
