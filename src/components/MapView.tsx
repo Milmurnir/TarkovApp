@@ -3,6 +3,7 @@ import { gameToSvg, svgToGame, type MapProjection, type MapViewBox } from '../li
 import type { RouteStop, Vec3 } from '../lib/types';
 import type { MapLabel } from '../lib/mapData';
 import type { PlacedContainer } from '../lib/loot';
+import { lootLook, type LootShape } from '../lib/lootIcons';
 import { questColor } from '../lib/questColor';
 
 interface Props {
@@ -171,10 +172,10 @@ export default function MapView({
           {/* Under the route and the markers: loot is context, not the plan. */}
           {lootContainers.map((container, i) => {
             const p = gameToSvg(container.position, projection, viewBox);
+            const look = lootLook(container.name);
             return (
               <g key={`loot-${i}`} transform={`translate(${p.x} ${p.y})`} style={{ pointerEvents: 'none' }}>
-                <rect x={-2.5} y={-2.5} width={5} height={5} rx={1}
-                  fill="#c9a227" fillOpacity={0.75} stroke="#1a1204" strokeWidth={0.6} />
+                <LootGlyph shape={look.shape} colour={look.colour} />
                 <title>
                   {container.name}
                   {Number.isFinite(container.fromRoute) && ` — ${Math.round(container.fromRoute)} m off the route`}
@@ -262,4 +263,67 @@ export default function MapView({
       </div>
     </div>
   );
+}
+
+/**
+ * The mark for one kind of container.
+ *
+ * Drawn rather than iconised because these end up about five pixels across, at
+ * which point a detailed picture is a smudge. Shape carries the meaning and
+ * colour reinforces it, so neither has to work alone.
+ */
+function LootGlyph({ shape, colour }: { shape: LootShape; colour: string }) {
+  const edge = { stroke: '#12100a', strokeWidth: 0.5, fill: colour, fillOpacity: 0.85 };
+
+  switch (shape) {
+    case 'body':
+      // A cross reads as a casualty and nothing else does.
+      return (
+        <g>
+          <circle r={2.6} {...edge} />
+          <path d="M -1.3 -1.3 L 1.3 1.3 M 1.3 -1.3 L -1.3 1.3" stroke="#2a0b0b" strokeWidth={0.7} />
+        </g>
+      );
+    case 'safe':
+      return (
+        <g>
+          <rect x={-2.6} y={-2.6} width={5.2} height={5.2} rx={0.6} {...edge} />
+          <circle r={1} fill="none" stroke="#3a2f06" strokeWidth={0.7} />
+        </g>
+      );
+    case 'medical':
+      return (
+        <g>
+          <rect x={-2.4} y={-2.4} width={4.8} height={4.8} rx={1} {...edge} />
+          <path d="M 0 -1.4 L 0 1.4 M -1.4 0 L 1.4 0" stroke="#c0392b" strokeWidth={0.9} />
+        </g>
+      );
+    case 'weapon':
+      return (
+        <g>
+          <rect x={-3} y={-2} width={6} height={4} rx={0.5} {...edge} />
+          <path d="M -3 0 L 3 0" stroke="#1c3317" strokeWidth={0.7} />
+        </g>
+      );
+    case 'tech':
+      return (
+        <g>
+          <rect x={-2.4} y={-2.4} width={4.8} height={4.8} rx={0.4} {...edge} />
+          <circle cx={0} cy={0} r={0.8} fill="#0e2233" />
+        </g>
+      );
+    case 'cache':
+      // Buried: a triangle sits apart from every box on the map.
+      return <path d="M 0 -3 L 2.8 2 L -2.8 2 Z" {...edge} />;
+    case 'crate':
+      return (
+        <g>
+          <rect x={-2.6} y={-2.6} width={5.2} height={5.2} {...edge} />
+          <path d="M -2.6 -2.6 L 2.6 2.6" stroke="#3d2a13" strokeWidth={0.5} />
+        </g>
+      );
+    case 'bag':
+    default:
+      return <rect x={-2.3} y={-2.8} width={4.6} height={5.6} rx={2.2} {...edge} />;
+  }
 }

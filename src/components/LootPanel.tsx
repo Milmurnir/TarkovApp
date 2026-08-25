@@ -1,4 +1,5 @@
-import { countByName, type PlacedContainer } from '../lib/loot';
+import { countByName, DENSITY_RADIUS, type PlacedContainer } from '../lib/loot';
+import { lootGroups, lootLook } from '../lib/lootIcons';
 
 interface Props {
   /** Every container on this map, already measured against the route. */
@@ -14,6 +15,9 @@ interface Props {
   /** Container names switched off; everything else is drawn. */
   hidden: string[];
   onToggleName: (name: string) => void;
+  /** Neighbours a container needs nearby before it is drawn at all. */
+  density: number;
+  onDensity: (density: number) => void;
 }
 
 const RADII = [15, 30, 50, 100];
@@ -26,12 +30,14 @@ const RADII = [15, 30, 50, 100];
  */
 export default function LootPanel({
   containers, shown, enabled, onEnabled, radius, onRadius, hasRoute, hidden, onToggleName,
+  density, onDensity,
 }: Props) {
   if (containers.length === 0) return null;
 
-  // Counted before the name filter, so a type's number does not vanish when
-  // you switch it off and you can find it again.
-  const inRange = radius === null
+  // Counted before the name filter, so a type's number does not vanish when you
+  // switch it off and you can find it again. With no route there is nothing to
+  // be near, so the radius sits inert rather than emptying the list.
+  const inRange = radius === null || !hasRoute
     ? containers
     : containers.filter((container) => container.fromRoute <= radius);
 
@@ -72,6 +78,27 @@ export default function LootPanel({
           </section>
 
           <section className="section">
+            <h3>Density</h3>
+            <label className="density-row">
+              <input
+                type="range"
+                min={1}
+                max={12}
+                value={density}
+                onChange={(event) => onDensity(Number(event.target.value))}
+              />
+              <span className="small">
+                {density === 1
+                  ? 'every container'
+                  : <>at least <strong>{density}</strong> within {DENSITY_RADIUS} m</>}
+              </span>
+            </label>
+            <p className="muted small">
+              A lone cupboard is rarely worth the detour; six in one room is.
+            </p>
+          </section>
+
+          <section className="section">
             <h3>Kinds</h3>
             <ul className="loot-kinds">
               {countByName(inRange).map(({ name, count }) => (
@@ -82,9 +109,22 @@ export default function LootPanel({
                       checked={!hidden.includes(name)}
                       onChange={() => onToggleName(name)}
                     />
+                    <span className="loot-swatch" style={{ background: lootLook(name).colour }} />
                     <span>{name}</span>
                     <span className="muted small">{count}</span>
                   </label>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="section">
+            <h3>On the map</h3>
+            <ul className="loot-legend">
+              {lootGroups().map((look) => (
+                <li key={look.shape}>
+                  <span className="loot-swatch" style={{ background: look.colour }} />
+                  <span className="muted small">{look.group}</span>
                 </li>
               ))}
             </ul>

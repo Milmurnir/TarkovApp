@@ -62,3 +62,50 @@ export function countByName(containers: PlacedContainer[]): { name: string; coun
   return Array.from(counts, ([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
+
+/** Neighbourhood the density threshold counts within, in game metres. */
+export const DENSITY_RADIUS = 20;
+
+/**
+ * Keeps only containers with enough neighbours nearby.
+ *
+ * Lone containers scattered across a map are rarely worth a detour; a cupboard
+ * with six others in the same room is. Bucketed into a grid first, because the
+ * naive comparison is a million and a half distance checks on Streets and this
+ * runs on every filter change.
+ */
+export function byDensity<T extends { position: Vec3 }>(containers: T[], minimum: number): T[] {
+  if (minimum <= 1) return containers;
+
+  const cell = DENSITY_RADIUS;
+  const buckets = new Map<string, T[]>();
+  const key = (x: number, z: number) => `${Math.floor(x / cell)}:${Math.floor(z / cell)}`;
+
+  for (const container of containers) {
+    const id = key(container.position.x, container.position.z);
+    const bucket = buckets.get(id);
+    if (bucket) bucket.push(container);
+    else buckets.set(id, [container]);
+  }
+
+  const withinRadius = DENSITY_RADIUS * DENSITY_RADIUS;
+
+  return containers.filter((container) => {
+    const cx = Math.floor(container.position.x / cell);
+    const cz = Math.floor(container.position.z / cell);
+    let near = 0;
+
+    // The nine surrounding cells cover everything inside one radius.
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (const other of buckets.get(`${cx + dx}:${cz + dz}`) ?? []) {
+          const ox = other.position.x - container.position.x;
+          const oz = other.position.z - container.position.z;
+          if (ox * ox + oz * oz <= withinRadius) near += 1;
+        }
+        if (near >= minimum) return true;
+      }
+    }
+    return near >= minimum;
+  });
+}

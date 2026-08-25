@@ -9,7 +9,7 @@ import UpdateNotice from './components/UpdateNotice';
 import CoopPanel from './components/CoopPanel';
 import CoopNotices from './components/CoopNotices';
 import LootPanel from './components/LootPanel';
-import { loadContainerNames, placeContainers } from './lib/loot';
+import { byDensity, loadContainerNames, placeContainers } from './lib/loot';
 import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import {
@@ -67,6 +67,7 @@ export default function App() {
   /** Metres from the route; null means the whole map. */
   const [lootRadius, setLootRadius] = useState<number | null>(30);
   const [hiddenLoot, setHiddenLoot] = useState<string[]>([]);
+  const [lootDensity, setLootDensity] = useState(1);
   const [containerNames, setContainerNames] = useState<Record<string, string>>({});
   /** Bumped on every open so the dialog never inherits the last run's ticks. */
   const [finishSession, setFinishSession] = useState(0);
@@ -452,8 +453,13 @@ export default function App() {
       ? () => true
       : (container: { fromRoute: number }) => container.fromRoute <= lootRadius;
 
-    return placedLoot.filter((container) => byRoute(container) && !hiddenLoot.includes(container.name));
-  }, [showLoot, placedLoot, lootRadius, hiddenLoot, route]);
+    // Density is judged against everything on the map, not what survives the
+    // other filters: hiding drawers should not make a cluster stop being one.
+    const dense = new Set(byDensity(placedLoot, lootDensity));
+
+    return placedLoot.filter((container) =>
+      byRoute(container) && dense.has(container) && !hiddenLoot.includes(container.name));
+  }, [showLoot, placedLoot, lootRadius, hiddenLoot, route, lootDensity]);
 
   return (
     <div className="app">
@@ -577,6 +583,8 @@ export default function App() {
             hidden={hiddenLoot}
             onToggleName={(name) => setHiddenLoot((current) =>
               current.includes(name) ? current.filter((n) => n !== name) : [...current, name])}
+            density={lootDensity}
+            onDensity={setLootDensity}
           />
 
           <CoopPanel run={coop} />
