@@ -625,6 +625,14 @@ export default function App() {
             <div className="panel"><p className="muted small">Loading map...</p></div>
           )}
 
+          {activeWiki && (
+            <QuestGuide
+              title={activeWiki}
+              wikiUrl={wikiByTitle[activeWiki]?.wikiUrl}
+              accent={questAccent(taskNameFor(activeWiki))}
+            />
+          )}
+
           {route && (
             <CurrentObjective route={route} selectedOrder={selectedOrder} onSelect={setSelectedOrder} />
           )}
@@ -639,14 +647,6 @@ export default function App() {
             me={{ id: coop.peerId, name: coop.name }}
             shared={coop.others.length > 0}
           />
-
-          {activeWiki && (
-            <QuestGuide
-              title={activeWiki}
-              wikiUrl={wikiByTitle[activeWiki]?.wikiUrl}
-              accent={questAccent(taskNameFor(activeWiki))}
-            />
-          )}
 
           {route && <RouteList route={route} />}
 

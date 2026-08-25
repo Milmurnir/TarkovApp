@@ -61,6 +61,9 @@ export default function MapView({
     if (!node) return;
 
     const onWheelNative = (event: WheelEvent) => {
+      // Plain scroll should move the page, like everywhere else on the site;
+      // only ctrl/cmd+scroll (a pinch-zoom gesture on trackpads too) zooms the map.
+      if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       setZoom((z) => Math.min(8, Math.max(0.5, z * (event.deltaY < 0 ? 1.15 : 0.87))));
     };
@@ -117,7 +120,7 @@ export default function MapView({
         <button onClick={() => setZoom((z) => Math.min(8, z * 1.3))}>+</button>
         <button onClick={() => setZoom((z) => Math.max(0.5, z / 1.3))}>−</button>
         <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
-        <span className="hint">click to set your spawn · scroll to zoom · drag to pan</span>
+        <span className="hint">click to set your spawn · ctrl+scroll to zoom · drag to pan</span>
       </div>
 
       <div
