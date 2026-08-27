@@ -33,6 +33,15 @@ export interface MapTransit {
   position: Vec3 | null;
 }
 
+/** A locked door, container or car boot, and the key that opens it. */
+export interface MapLock {
+  lockType: string;
+  /** Key item id; names live in public/data/loot-items.json. */
+  key: string | null;
+  needsPower: boolean;
+  position: Vec3;
+}
+
 /** A lootable container placed on a map. */
 export interface LootContainer {
   /** BSG template id; names live in public/data/loot-containers.json. */

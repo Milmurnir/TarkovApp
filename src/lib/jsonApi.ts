@@ -1,4 +1,6 @@
-import type { LootContainer, MapExtract, MapSpawn, Task, TaskObjective, Vec3 } from './types';
+import type {
+  LootContainer, MapExtract, MapLock, MapSpawn, Task, TaskObjective, Vec3,
+} from './types';
 
 /**
  * Client for json.tarkov.dev.
@@ -19,6 +21,9 @@ const BASE = '/api/json';
 // the index empty and every quest looking unavailable.
 const CACHE_PREFIX = 'tarkov-json-slice-v6:';
 const GRAPH_KEY = 'tarkov-task-index-v4';
+// Loose loot is hundreds of kilobytes per map and only the loot run wants it,
+// so it lives under its own key rather than bloating every quest lookup.
+const LOOT_PREFIX = 'tarkov-loose-loot-v1:';
 const LANGUAGE = 'en';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
@@ -214,6 +219,42 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
         })),
     }));
 
+  // Positions as tuples and items as indexes into one table: the raw shape is
+  // 328 KB on Streets, which localStorage cannot afford next to everything else.
+  const looseItems: string[] = [];
+  const looseIndex = new Map<string, number>();
+  const loosePoints = (target.lootLoose ?? [])
+    .filter((point: any) => point.position && Array.isArray(point.items))
+    .map((point: any) => ({
+      p: [point.position.x, point.position.y, point.position.z] as [number, number, number],
+      i: point.items
+        .filter((id: any): id is string => typeof id === 'string')
+        .map((id: string) => {
+          const known = looseIndex.get(id);
+          if (known !== undefined) return known;
+          looseIndex.set(id, looseItems.length);
+          looseItems.push(id);
+          return looseItems.length - 1;
+        }),
+    }));
+
+  const locks: MapLock[] = (target.locks ?? [])
+    .filter((lock: any) => lock.position)
+    .map((lock: any) => ({
+      lockType: typeof lock.lockType === 'string' ? lock.lockType : 'door',
+      key: typeof lock.key === 'string' ? lock.key : null,
+      needsPower: Boolean(lock.needsPower),
+      position: lock.position as Vec3,
+    }));
+
+  try {
+    localStorage.setItem(LOOT_PREFIX + mapName, JSON.stringify({
+      items: looseItems, points: loosePoints, locks,
+    }));
+  } catch {
+    // The loot run degrades to nothing rather than breaking the map.
+  }
+
   const lootContainers: LootContainer[] = (target.lootContainers ?? [])
     .filter((c: any) => c.position && typeof c.lootContainer === 'string')
     .map((c: any) => ({ template: c.lootContainer as string, position: c.position as Vec3 }));
@@ -360,4 +401,34 @@ export function loadTaskIndex(): TaskIndex {
     // Fall through to an empty index; it is rebuilt on the next load.
   }
   return { requires: {}, idByName: {}, minLevel: {} };
+}
+
+export interface LooseLootPoint {
+  position: Vec3;
+  items: string[];
+}
+
+export interface LooseLoot {
+  points: LooseLootPoint[];
+  locks: MapLock[];
+}
+
+/** Loose loot for one map, from whatever the last successful fetch stored. */
+export function loadLooseLoot(mapName: string): LooseLoot {
+  try {
+    const raw = localStorage.getItem(LOOT_PREFIX + mapName);
+    if (!raw) return { points: [], locks: [] };
+    const parsed = JSON.parse(raw);
+    const table: string[] = parsed.items ?? [];
+
+    return {
+      points: (parsed.points ?? []).map((point: any) => ({
+        position: { x: point.p[0], y: point.p[1], z: point.p[2] },
+        items: (point.i ?? []).map((index: number) => table[index]).filter(Boolean),
+      })),
+      locks: parsed.locks ?? [],
+    };
+  } catch {
+    return { points: [], locks: [] };
+  }
 }

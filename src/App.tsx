@@ -10,6 +10,11 @@ import CoopPanel from './components/CoopPanel';
 import CoopNotices from './components/CoopNotices';
 import LootPanel from './components/LootPanel';
 import { byDensity, loadContainerNames, placeContainers } from './lib/loot';
+import LootRunPanel from './components/LootRunPanel';
+import { buildLootRun, itemsOnMap, spotsFor, type ItemChoice } from './lib/lootRun';
+import {
+  containerItemChoices, containersHolding, loadContainerLoot, type ContainerLoot,
+} from './lib/containerLoot';
 import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import {
@@ -19,7 +24,9 @@ import {
 import { useCoopRun, useMirroredField } from './lib/useCoopRun';
 import type { CheckEntry } from './lib/sharedRun';
 import { buildRoute } from './lib/route';
-import { JsonApiError, fetchMapSlice, loadTaskIndex, type MapSlice } from './lib/jsonApi';
+import {
+  JsonApiError, fetchMapSlice, loadLooseLoot, loadTaskIndex, type MapSlice,
+} from './lib/jsonApi';
 import { fetchQuest, fetchQuestList, searchQuests } from './lib/wiki';
 import { fetchQuestIndex, questsForMap, type QuestIndex } from './lib/questIndex';
 import {
@@ -69,6 +76,14 @@ export default function App() {
   const [hiddenLoot, setHiddenLoot] = useState<string[]>([]);
   const [lootDensity, setLootDensity] = useState(1);
   const [containerNames, setContainerNames] = useState<Record<string, string>>({});
+  /** Quest routing, or a raid built around one item. */
+  const [mode, setMode] = useState<'quests' | 'loot'>('quests');
+  const [lootWanted, setLootWanted] = useState<ItemChoice[]>([]);
+  const [lootLimit, setLootLimit] = useState(10);
+  const [itemNames, setItemNames] = useState<Record<string, string>>({});
+  const [containerLoot, setContainerLoot] = useState<ContainerLoot>(
+    { ids: [], names: [], containers: {} },
+  );
   /** Bumped on every open so the dialog never inherits the last run's ticks. */
   const [finishSession, setFinishSession] = useState(0);
   /** The last automatic back-fill, kept so it can be undone. */
@@ -123,6 +138,7 @@ export default function App() {
   // Reload everything map-specific when the map changes.
   useEffect(() => {
     setMapData(null);
+    setLootWanted([]);
     setClickedSpawn(null);
     setSelectedOrder(null);
     setZoneIndex(0);
@@ -312,6 +328,56 @@ export default function App() {
   const apiSpawns = useMemo(() => api?.spawns ?? [], [api]);
 
   useEffect(() => { loadContainerNames().then(setContainerNames); }, []);
+  useEffect(() => { loadContainerLoot().then(setContainerLoot); }, []);
+
+  useEffect(() => {
+    fetch('/data/loot-items.json')
+      .then((response) => (response.ok ? response.json() : {}))
+      .then(setItemNames)
+      .catch(() => setItemNames({}));
+  }, []);
+
+  /** Loose loot for this map, read from what the last map fetch cached. */
+  const looseLoot = useMemo(() => loadLooseLoot(mapName), [mapName, api]);
+  /** Names for everything searchable: loose loot, keys, and container contents. */
+  const allItemNames = useMemo(() => {
+    const names: Record<string, string> = { ...itemNames };
+    containerLoot.ids.forEach((id, index) => {
+      if (!names[id]) names[id] = containerLoot.names[index] ?? id;
+    });
+    return names;
+  }, [itemNames, containerLoot]);
+
+  const lootItems = useMemo(() => {
+    const seen = new Map(itemsOnMap(looseLoot.points, allItemNames).map((item) => [item.id, item]));
+
+    // How many containers of each kind stand on this map, so an item's count
+    // can include the cupboards it might be inside and not just the floor.
+    const perTemplate = new Map<string, number>();
+    for (const container of api?.lootContainers ?? []) {
+      perTemplate.set(container.template, (perTemplate.get(container.template) ?? 0) + 1);
+    }
+
+    const fromContainers = new Map<number, number>();
+    for (const [template, indexes] of Object.entries(containerLoot.containers)) {
+      const placed = perTemplate.get(template);
+      if (!placed) continue;
+      for (const index of indexes) {
+        fromContainers.set(index, (fromContainers.get(index) ?? 0) + placed);
+      }
+    }
+
+    for (const [index, count] of fromContainers) {
+      const id = containerLoot.ids[index];
+      if (!id) continue;
+      const existing = seen.get(id);
+      if (existing) existing.spots += count;
+      else seen.set(id, { id, name: containerLoot.names[index] ?? id, spots: count });
+    }
+
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [looseLoot, allItemNames, api, containerLoot]);
+
 
 
   /**
@@ -398,6 +464,19 @@ export default function App() {
     return null;
   }, [clickedSpawn, apiSpawns, zoneCentre]);
 
+  const lootSpots = useMemo(() => {
+    const ids = lootWanted.map((item) => item.id);
+    return spotsFor(
+      ids, looseLoot.points, api?.lootContainers ?? [],
+      containersHolding(ids, containerLoot), containerNames,
+    );
+  }, [lootWanted, looseLoot, api, containerLoot, containerNames]);
+
+  const lootRun = useMemo(() => {
+    if (mode !== 'loot' || lootSpots.length === 0 || !routeStart) return null;
+    return buildLootRun(lootSpots, looseLoot.locks, routeStart, lootLimit, allItemNames);
+  }, [mode, lootSpots, looseLoot, routeStart, lootLimit, allItemNames]);
+
   const route = useMemo(() => {
     if (tasks.length === 0 || !api || !routeStart) return null;
     return buildRoute(tasks, routeStart, routableExtracts, mapName);
@@ -472,6 +551,21 @@ export default function App() {
 
       <div className="layout">
         <aside>
+          <div className="mode-tabs">
+            <button
+              className={mode === 'quests' ? 'active' : ''}
+              onClick={() => setMode('quests')}
+            >
+              Quests
+            </button>
+            <button
+              className={mode === 'loot' ? 'active' : ''}
+              onClick={() => setMode('loot')}
+            >
+              Loot run
+            </button>
+          </div>
+
           <div className="panel">
             <h2>Map</h2>
             <select
@@ -488,6 +582,25 @@ export default function App() {
             </label>
           </div>
 
+          {mode === 'loot' && (
+            <LootRunPanel
+              items={lootItems}
+              chosen={lootWanted}
+              onAdd={(item) => setLootWanted((current) =>
+                current.some((c) => c.id === item.id) ? current : [...current, item])}
+              onRemove={(id) => setLootWanted((current) => current.filter((c) => c.id !== id))}
+              onClear={() => setLootWanted([])}
+              spots={lootSpots.length}
+              run={lootRun}
+              limit={lootLimit}
+              onLimit={setLootLimit}
+              keyNames={allItemNames}
+              mapName={wikiMapName || mapName}
+              hasSpawn={Boolean(routeStart)}
+            />
+          )}
+
+          {mode === 'quests' && (
           <div className="panel">
             <h2>Quests</h2>
             <input
@@ -554,7 +667,9 @@ export default function App() {
             {loadingQuest && <p className="muted small">Loading quest...</p>}
             {wikiError && <p className="error small">{wikiError}</p>}
           </div>
+          )}
 
+          {mode === 'quests' && (
           <ProgressPanel
             progress={progress}
             questTitles={questTitles}
@@ -571,6 +686,7 @@ export default function App() {
             onImport={importProgress}
             onReset={() => updateProgress(emptyProgress())}
           />
+          )}
 
           <LootPanel
             containers={placedLoot}
@@ -681,7 +797,9 @@ export default function App() {
               svgUrl={mapData.svg}
               viewBox={mapData.viewBox}
               projection={mapData.projection}
-              stops={route ? route.stops : fallbackStops}
+              stops={mode === 'loot'
+                ? (lootRun ? lootRun.stops : fallbackStops)
+                : (route ? route.stops : fallbackStops)}
               labels={mapData.labels}
               spawnPoints={activeZone ? activeZone.spawns.map((sp) => ({ x: sp.position.x, z: sp.position.z })) : []}
               sniperSpawns={showSnipers ? sniperSpawns : []}
@@ -698,7 +816,7 @@ export default function App() {
             <div className="panel"><p className="muted small">Loading map...</p></div>
           )}
 
-          {activeWiki && (
+          {mode === 'quests' && activeWiki && (
             <QuestGuide
               title={activeWiki}
               wikiUrl={wikiByTitle[activeWiki]?.wikiUrl}
@@ -709,10 +827,15 @@ export default function App() {
             />
           )}
 
-          {route && (
+          {mode === 'quests' && route && (
             <CurrentObjective route={route} selectedOrder={selectedOrder} onSelect={setSelectedOrder} />
           )}
 
+          {mode === 'loot' && lootRun && lootRun.stops.length > 1 && (
+            <RouteList route={{ stops: lootRun.stops, totalDistance: lootRun.totalDistance, unmappedObjectives: [] }} />
+          )}
+
+          {mode === 'quests' && (
           <RouteRequirements
             quests={selectedWiki}
             activeTitle={activeWiki}
@@ -725,10 +848,11 @@ export default function App() {
             mapNames={allMapNames}
             currentMap={wikiMapName || null}
           />
+          )}
 
-          {route && <RouteList route={route} />}
+          {mode === 'quests' && route && <RouteList route={route} />}
 
-          {selectedQuests.length > 0 && (
+          {mode === 'quests' && selectedQuests.length > 0 && (
             <div className="panel finish-panel">
               <div>
                 <h2>Done with this run?</h2>
@@ -745,7 +869,7 @@ export default function App() {
             </div>
           )}
 
-          {unroutable.length > 0 && api && (
+          {mode === 'quests' && unroutable.length > 0 && api && (
             <div className="panel warn">
               <p className="small">
                 No published objective coordinates for: {unroutable.join(', ')}. These are not drawn on

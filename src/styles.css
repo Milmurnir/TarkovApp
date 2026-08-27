@@ -410,3 +410,16 @@ button:hover { border-color: var(--accent); }
 }
 .loot-legend { list-style: none; margin: 4px 0; padding: 0; }
 .loot-legend li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+
+/* Quest routing or a loot run: two modes, one map. */
+.mode-tabs { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.mode-tabs button {
+  flex: 1; border: 0; border-radius: 0; background: transparent;
+  padding: 9px 10px; color: var(--muted); font-weight: 600;
+}
+.mode-tabs button + button { border-left: 1px solid var(--border); }
+.mode-tabs button:hover { color: var(--text); }
+.mode-tabs button.active { background: var(--accent); color: #0b0f14; }
+
+.loot-run-chosen { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+.loot-run-chosen button { font-size: 12px; padding: 4px 10px; }

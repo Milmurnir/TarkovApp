@@ -255,6 +255,8 @@ def main():
               f'extracts={len(extracts):3d} labels={len(labels):3d} inside={accuracy:.1%}')
 
     write_container_names()
+    write_loot_item_names()
+    write_container_loot()
 
     with open(os.path.join(DATA_DIR, 'maps-index.json'), 'w', encoding='utf-8') as handle:
         json.dump(index, handle, indent=1)
@@ -295,6 +297,91 @@ def write_container_names():
 
     missing = len(ids) - len(names)
     print(f'loot containers      named={len(names):3d} unnamed={missing:3d}')
+
+
+def write_loot_item_names():
+    """Names for loose-loot items and for the keys that lock doors."""
+    try:
+        maps = get(TARKOV_MAPS_API)['data']['maps']
+        locale = get(SPT_LOCALE)
+    except Exception as error:
+        print(f'PROBLEM: could not build loot item names: {error}')
+        return
+
+    if isinstance(maps, dict):
+        maps = list(maps.values())
+
+    ids = set()
+    for entry in maps:
+        for point in entry.get('lootLoose') or []:
+            for item in point.get('items') or []:
+                if isinstance(item, str):
+                    ids.add(item)
+        for lock in entry.get('locks') or []:
+            if isinstance(lock.get('key'), str):
+                ids.add(lock['key'])
+
+    names = {}
+    for template in sorted(ids):
+        name = locale.get(f'{template} Name') or locale.get(template)
+        if name:
+            names[template] = name
+
+    path = os.path.join(DATA_DIR, 'loot-items.json')
+    with open(path, 'w', encoding='utf-8') as handle:
+        json.dump(names, handle, indent=1, sort_keys=True)
+
+    print(f'loot items           named={len(names):3d} unnamed={len(ids) - len(names):3d}')
+
+
+def write_container_loot():
+    """What each kind of container can hold, merged across every map.
+
+    json.tarkov.dev places containers but says nothing about their contents, so
+    "which containers might hold bolts" is unanswerable from it alone. SPT ships
+    the static loot tables that answer it. Probabilities differ per map; the
+    union of possibilities is what a route needs, so that is what is kept.
+    """
+    ids = []
+    index = {}
+    containers = {}
+
+    try:
+        locale = get(SPT_LOCALE)
+    except Exception as error:
+        print(f'PROBLEM: could not build container loot: {error}')
+        return
+
+    for normalized, (spt_folder, _wiki) in MAP_SOURCES.items():
+        try:
+            static = get(f'{SPT_BASE}/{spt_folder}/staticLoot.json')
+        except Exception:
+            continue
+
+        for template, info in static.items():
+            bucket = containers.setdefault(template, set())
+            for entry in info.get('itemDistribution') or []:
+                item = entry.get('tpl')
+                if not item or not locale.get(f'{item} Name'):
+                    continue
+                if item not in index:
+                    index[item] = len(ids)
+                    ids.append(item)
+                bucket.add(index[item])
+
+    payload = {
+        'ids': ids,
+        'names': [locale.get(f'{item} Name', item) for item in ids],
+        'containers': {template: sorted(items) for template, items in containers.items()},
+    }
+
+    path = os.path.join(DATA_DIR, 'container-loot.json')
+    with open(path, 'w', encoding='utf-8') as handle:
+        json.dump(payload, handle, separators=(',', ':'))
+
+    pairs = sum(len(v) for v in containers.values())
+    size = os.path.getsize(path) // 1024
+    print(f'container loot       kinds={len(containers):3d} items={len(ids):5d} pairs={pairs:6d} {size} KB')
 
 
 if __name__ == '__main__':
