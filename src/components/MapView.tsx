@@ -268,62 +268,82 @@ export default function MapView({
 /**
  * The mark for one kind of container.
  *
- * Drawn rather than iconised because these end up about five pixels across, at
- * which point a detailed picture is a smudge. Shape carries the meaning and
- * colour reinforces it, so neither has to work alone.
+ * Drawn here rather than taken from the wiki's interactive map: that art is
+ * theirs. The style is the borrowed part — a bold flat pictogram with a pale
+ * outline, which is what makes these readable against a busy map instead of
+ * dissolving into it.
+ *
+ * Bigger than a dot on purpose. At five pixels every kind looked the same; the
+ * density and distance filters are what keep the map from filling up, not
+ * shrinking the marks until they carry no information.
  */
 function LootGlyph({ shape, colour }: { shape: LootShape; colour: string }) {
-  const edge = { stroke: '#12100a', strokeWidth: 0.5, fill: colour, fillOpacity: 0.85 };
+  const body = { fill: colour, stroke: '#f2efe6', strokeWidth: 0.7, strokeLinejoin: 'round' as const };
+  const detail = { fill: 'none', stroke: '#1b1710', strokeWidth: 0.7, strokeLinecap: 'round' as const };
 
   switch (shape) {
     case 'body':
-      // A cross reads as a casualty and nothing else does.
       return (
         <g>
-          <circle r={2.6} {...edge} />
-          <path d="M -1.3 -1.3 L 1.3 1.3 M 1.3 -1.3 L -1.3 1.3" stroke="#2a0b0b" strokeWidth={0.7} />
+          <circle r={4} {...body} />
+          <path d="M -1.8 -1.8 L 1.8 1.8 M 1.8 -1.8 L -1.8 1.8" {...detail} strokeWidth={1} />
         </g>
       );
     case 'safe':
       return (
         <g>
-          <rect x={-2.6} y={-2.6} width={5.2} height={5.2} rx={0.6} {...edge} />
-          <circle r={1} fill="none" stroke="#3a2f06" strokeWidth={0.7} />
+          <rect x={-4} y={-4} width={8} height={8} rx={1} {...body} />
+          <circle r={1.6} {...detail} />
+          <path d="M 1.6 0 L 3 0" {...detail} />
         </g>
       );
     case 'medical':
       return (
         <g>
-          <rect x={-2.4} y={-2.4} width={4.8} height={4.8} rx={1} {...edge} />
-          <path d="M 0 -1.4 L 0 1.4 M -1.4 0 L 1.4 0" stroke="#c0392b" strokeWidth={0.9} />
+          <rect x={-4} y={-3} width={8} height={6} rx={1} {...body} />
+          <path d="M 0 -1.8 L 0 1.8 M -1.8 0 L 1.8 0" stroke="#c0392b" strokeWidth={1.4} strokeLinecap="round" />
+          <path d="M -1.6 -3 L -1.6 -4 L 1.6 -4 L 1.6 -3" {...body} />
         </g>
       );
     case 'weapon':
       return (
         <g>
-          <rect x={-3} y={-2} width={6} height={4} rx={0.5} {...edge} />
-          <path d="M -3 0 L 3 0" stroke="#1c3317" strokeWidth={0.7} />
+          <rect x={-4.5} y={-2.8} width={9} height={5.6} rx={0.8} {...body} />
+          <path d="M -4.5 -0.6 L 4.5 -0.6" {...detail} />
+          <path d="M -2 -2.8 L -2 2.8 M 2 -2.8 L 2 2.8" {...detail} strokeWidth={0.5} />
         </g>
       );
     case 'tech':
       return (
         <g>
-          <rect x={-2.4} y={-2.4} width={4.8} height={4.8} rx={0.4} {...edge} />
-          <circle cx={0} cy={0} r={0.8} fill="#0e2233" />
+          <rect x={-3} y={-4} width={6} height={8} rx={0.8} {...body} />
+          <path d="M -1.4 -2.4 L 1.4 -2.4" {...detail} />
+          <circle cx={0} cy={1.4} r={1} {...detail} />
         </g>
       );
     case 'cache':
-      // Buried: a triangle sits apart from every box on the map.
-      return <path d="M 0 -3 L 2.8 2 L -2.8 2 Z" {...edge} />;
+      // Buried: a mound, which nothing else on the map is shaped like.
+      return (
+        <g>
+          <path d="M -4.2 3 A 4.2 4 0 0 1 4.2 3 Z" {...body} />
+          <path d="M -2 3 A 2 2.2 0 0 1 2 3" {...detail} strokeWidth={0.5} />
+        </g>
+      );
     case 'crate':
       return (
         <g>
-          <rect x={-2.6} y={-2.6} width={5.2} height={5.2} {...edge} />
-          <path d="M -2.6 -2.6 L 2.6 2.6" stroke="#3d2a13" strokeWidth={0.5} />
+          <rect x={-4} y={-3.4} width={8} height={6.8} rx={0.4} {...body} />
+          <path d="M -4 -1.2 L 4 -1.2 M -4 1.2 L 4 1.2" {...detail} strokeWidth={0.5} />
         </g>
       );
     case 'bag':
     default:
-      return <rect x={-2.3} y={-2.8} width={4.6} height={5.6} rx={2.2} {...edge} />;
+      return (
+        <g>
+          <rect x={-4} y={-2.2} width={8} height={5.6} rx={2} {...body} />
+          {/* The handle is what makes a bag a bag at this size. */}
+          <path d="M -1.8 -2.2 A 1.8 1.8 0 0 1 1.8 -2.2" {...detail} />
+        </g>
+      );
   }
 }
