@@ -70,6 +70,9 @@ export default function LootRunPanel({
             <li key={item.id}>
               <button onClick={() => { onAdd(item); setQuery(''); }}>
                 {item.name}
+                {/* The short name is how it reads in your stash, so show it
+                    when it is the thing you would have searched for. */}
+                {item.short && <span className="muted"> ({item.short})</span>}
                 <span className="muted small"> · {item.spots} spot{item.spots === 1 ? '' : 's'}</span>
               </button>
             </li>
@@ -86,7 +89,7 @@ export default function LootRunPanel({
             {chosen.map((item) => (
               <li key={item.id}>
                 <span className="chosen-name">
-                  {item.name}
+                  {item.short ?? item.name}
                   <span className="muted small"> · {item.spots}</span>
                 </span>
                 <button className="chosen-remove" onClick={() => onRemove(item.id)} title="Remove">x</button>

@@ -84,6 +84,7 @@ export default function App() {
   const [containerLoot, setContainerLoot] = useState<ContainerLoot>(
     { ids: [], names: [], containers: {} },
   );
+  const [shortNames, setShortNames] = useState<Record<string, string>>({});
   /** Bumped on every open so the dialog never inherits the last run's ticks. */
   const [finishSession, setFinishSession] = useState(0);
   /** The last automatic back-fill, kept so it can be undone. */
@@ -331,6 +332,13 @@ export default function App() {
   useEffect(() => { loadContainerLoot().then(setContainerLoot); }, []);
 
   useEffect(() => {
+    fetch('/data/item-shortnames.json')
+      .then((response) => (response.ok ? response.json() : {}))
+      .then(setShortNames)
+      .catch(() => setShortNames({}));
+  }, []);
+
+  useEffect(() => {
     fetch('/data/loot-items.json')
       .then((response) => (response.ok ? response.json() : {}))
       .then(setItemNames)
@@ -375,8 +383,10 @@ export default function App() {
       else seen.set(id, { id, name: containerLoot.names[index] ?? id, spots: count });
     }
 
-    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [looseLoot, allItemNames, api, containerLoot]);
+    return Array.from(seen.values())
+      .map((item) => ({ ...item, short: shortNames[item.id] }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [looseLoot, allItemNames, api, containerLoot, shortNames]);
 
 
 

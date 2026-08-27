@@ -257,6 +257,7 @@ def main():
     write_container_names()
     write_loot_item_names()
     write_container_loot()
+    write_short_names()
 
     with open(os.path.join(DATA_DIR, 'maps-index.json'), 'w', encoding='utf-8') as handle:
         json.dump(index, handle, indent=1)
@@ -382,6 +383,42 @@ def write_container_loot():
     pairs = sum(len(v) for v in containers.values())
     size = os.path.getsize(path) // 1024
     print(f'container loot       kinds={len(containers):3d} items={len(ids):5d} pairs={pairs:6d} {size} KB')
+
+
+def write_short_names():
+    """The names players actually use.
+
+    In game a 6-STEN-140-M military battery is a "Tank battery", and that is
+    what someone types. Only the ones that differ from the full name are kept;
+    the rest would be dead weight.
+    """
+    try:
+        locale = get(SPT_LOCALE)
+    except Exception as error:
+        print(f'PROBLEM: could not build short names: {error}')
+        return
+
+    known = set()
+    for filename in ('loot-items.json', 'container-loot.json'):
+        path = os.path.join(DATA_DIR, filename)
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding='utf-8') as handle:
+            data = json.load(handle)
+        known.update(data.get('ids') or data.keys())
+
+    shorts = {}
+    for item in sorted(known):
+        short = locale.get(f'{item} ShortName')
+        full = locale.get(f'{item} Name')
+        if short and full and short.strip().lower() != full.strip().lower():
+            shorts[item] = short
+
+    path = os.path.join(DATA_DIR, 'item-shortnames.json')
+    with open(path, 'w', encoding='utf-8') as handle:
+        json.dump(shorts, handle, separators=(',', ':'), sort_keys=True)
+
+    print(f'short names          kept={len(shorts):5d} of {len(known)}')
 
 
 if __name__ == '__main__':

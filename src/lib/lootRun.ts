@@ -24,6 +24,8 @@ export const LOCK_RADIUS = 12;
 export interface ItemChoice {
   id: string;
   name: string;
+  /** What the game calls it in your stash, when that differs. */
+  short?: string;
   /** Spots on this map where it can appear. */
   spots: number;
 }
@@ -86,14 +88,18 @@ export function searchItems(items: ItemChoice[], query: string): ItemChoice[] {
   const needle = query.trim().toLowerCase();
   if (needle.length < 2) return [];
 
+  // Matched on the short name as well: a 6-STEN-140-M military battery is a
+  // "Tank battery" everywhere except in this data, and that is what gets typed.
+  const haystack = (item: ItemChoice) => `${item.name} ${item.short ?? ''}`.toLowerCase();
+  const starts = (item: ItemChoice) =>
+    item.name.toLowerCase().startsWith(needle) || (item.short ?? '').toLowerCase().startsWith(needle);
+
   return items
-    .filter((item) => item.name.toLowerCase().includes(needle))
+    .filter((item) => haystack(item).includes(needle))
     // A name that starts with what you typed is more likely the one you meant.
-    .sort((a, b) => {
-      const aStarts = a.name.toLowerCase().startsWith(needle) ? 0 : 1;
-      const bStarts = b.name.toLowerCase().startsWith(needle) ? 0 : 1;
-      return aStarts - bStarts || b.spots - a.spots || a.name.localeCompare(b.name);
-    })
+    .sort((a, b) => (starts(a) ? 0 : 1) - (starts(b) ? 0 : 1)
+      || b.spots - a.spots
+      || a.name.localeCompare(b.name))
     .slice(0, 10);
 }
 
