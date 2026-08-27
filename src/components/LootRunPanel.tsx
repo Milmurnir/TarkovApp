@@ -18,7 +18,8 @@ interface Props {
   hasSpawn: boolean;
 }
 
-const LIMITS = [5, 10, 15, 20];
+/** Infinity is "every spot that can hold it", however many that turns out to be. */
+const LIMITS = [5, 10, 20, 50, Infinity];
 
 /**
  * A raid planned around one item instead of around quests.
@@ -97,8 +98,7 @@ export default function LootRunPanel({
             ))}
           </ul>
           <p className="muted small">
-            {spots} spot{spots === 1 ? '' : 's'} on {mapName} hold at least one of these
-            {chosen.length > 1 && ', and the route prefers the ones holding several'}.
+            {spots} spot{spots === 1 ? '' : 's'} on {mapName} can hold at least one of these.
             {chosen.length > 1 && <> <button className="muted-button" onClick={onClear}>Clear all</button></>}
           </p>
 
@@ -107,13 +107,21 @@ export default function LootRunPanel({
             <div className="loot-radius">
               {LIMITS.map((count) => (
                 <button key={count} className={limit === count ? 'active' : ''} onClick={() => onLimit(count)}>
-                  {count}
+                  {Number.isFinite(count) ? count : 'All'}
                 </button>
               ))}
             </div>
             {run && run.skipped > 0 && (
               <p className="muted small">
-                The {run.stops.length - 1} closest to your spawn; {run.skipped} further away are left out.
+                The {run.stops.length - 1} best of {spots}: each spot is ranked by how often it
+                actually holds one of these, discounted by how far you have to walk for it.
+                The other {run.skipped} are worse odds, further out, or both.
+              </p>
+            )}
+            {run && run.skipped === 0 && run.stops.length > 25 && (
+              <p className="muted small">
+                Every spot on the map, ordered as short a walk as it can manage. That is a
+                lot of ground for one raid.
               </p>
             )}
           </section>

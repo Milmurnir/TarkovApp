@@ -82,7 +82,7 @@ export default function App() {
   const [lootLimit, setLootLimit] = useState(10);
   const [itemNames, setItemNames] = useState<Record<string, string>>({});
   const [containerLoot, setContainerLoot] = useState<ContainerLoot>(
-    { ids: [], names: [], containers: {} },
+    { ids: [], names: [], containers: {}, chances: {} },
   );
   const [shortNames, setShortNames] = useState<Record<string, string>>({});
   /** Bumped on every open so the dialog never inherits the last run's ticks. */

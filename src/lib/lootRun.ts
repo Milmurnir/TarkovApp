@@ -1,4 +1,5 @@
 import { distance2d } from './mapgeo';
+import type { ContainerHit } from './containerLoot';
 import type { LooseLootPoint } from './jsonApi';
 import type { LootContainer, MapLock, RouteStop, Vec3 } from './types';
 
@@ -16,10 +17,35 @@ import type { LootContainer, MapLock, RouteStop, Vec3 } from './types';
  * chains and delivers none is worse than no route.
  */
 
-/** Above this many stops the ordering gets slow and the raid gets silly. */
-export const MAX_STOPS = 20;
 /** How close a lock has to be before it might be the thing in your way. */
 export const LOCK_RADIUS = 12;
+
+/**
+ * What one loose spawn point is worth.
+ *
+ * Containers come with real odds from SPT's static tables. Loose loot does not:
+ * json.tarkov.dev lists what can lie at a point but not how often, and SPT's own
+ * looseLoot tables are 42 MB per map behind git LFS, which is not something to
+ * ship for a ranking tweak. So it is estimated -- a point that spawns rolls
+ * roughly one item from its candidate list, and points do not always spawn --
+ * which makes a lone-candidate point worth about a good container and a
+ * twelve-candidate one worth much less. Right in shape, rough in scale.
+ */
+const LOOSE_SPAWN_CHANCE = 0.25;
+
+/**
+ * Where distance starts cancelling out odds.
+ *
+ * A spot at the median distance from your spawn counts for half what the same
+ * spot would at your feet. Taking the median rather than a fixed metre count
+ * makes it scale itself: Factory and Streets both end up judging "far" against
+ * their own size.
+ */
+function halfLife(distances: number[]): number {
+  if (distances.length === 0) return 1;
+  const sorted = [...distances].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] || 1;
+}
 
 export interface ItemChoice {
   id: string;
@@ -37,6 +63,13 @@ export interface LootSpot {
   hits: string[];
   /** Container name, or null when the loot lies loose. */
   container: string | null;
+  /** Chance at least one wanted item is here, 0..1. */
+  chance: number;
+}
+
+/** Chance of at least one, given independent per-item odds. */
+function anyOf(chances: number[]): number {
+  return 1 - chances.reduce((left, chance) => left * (1 - chance), 1);
 }
 
 /**
@@ -47,27 +80,33 @@ export function spotsFor(
   itemIds: string[],
   points: LooseLootPoint[],
   containers: LootContainer[],
-  holdsByTemplate: Map<string, string[]>,
+  holdsByTemplate: Map<string, ContainerHit[]>,
   containerNames: Record<string, string>,
 ): LootSpot[] {
   const wanted = new Set(itemIds);
   if (wanted.size === 0) return [];
 
   const loose: LootSpot[] = points
-    .map((point) => ({
-      position: point.position,
-      hits: point.items.filter((id) => wanted.has(id)),
-      container: null,
-    }))
+    .map((point) => {
+      const hits = point.items.filter((id) => wanted.has(id));
+      // One roll spread over everything that could lie here, so a spot that
+      // only ever holds the thing you want beats one that might hold anything.
+      const each = LOOSE_SPAWN_CHANCE / Math.max(1, point.items.length);
+      return { position: point.position, hits, container: null, chance: anyOf(hits.map(() => each)) };
+    })
     .filter((spot) => spot.hits.length > 0);
 
   const inContainers: LootSpot[] = containers
     .filter((container) => holdsByTemplate.has(container.template))
-    .map((container) => ({
-      position: container.position,
-      hits: holdsByTemplate.get(container.template) ?? [],
-      container: containerNames[container.template] ?? 'Container',
-    }));
+    .map((container) => {
+      const holds = holdsByTemplate.get(container.template) ?? [];
+      return {
+        position: container.position,
+        hits: holds.map((hit) => hit.id),
+        container: containerNames[container.template] ?? 'Container',
+        chance: anyOf(holds.map((hit) => hit.chance)),
+      };
+    });
 
   return [...loose, ...inContainers];
 }
@@ -119,8 +158,12 @@ export interface LootRun {
 
 /**
  * Nearest-neighbour from the spawn, then 2-opt, the same as the quest route.
- * Capped first: a hundred spots of an item is not a raid plan, and the ordering
- * is quadratic.
+ *
+ * Which spots make the cut is the interesting half. Neither odds nor distance
+ * decides alone: a 12% toolbox across the map loses to a 12% one by your spawn,
+ * and a 0.6% medcase next door loses to a 12% toolbox a little further out. So
+ * each spot is scored as its odds discounted by how far it sits, and the best
+ * `limit` are kept -- `Infinity` keeps every one.
  */
 export function buildLootRun(
   spots: LootSpot[],
@@ -131,12 +174,13 @@ export function buildLootRun(
 ): LootRun {
   if (spots.length === 0) return { stops: [], totalDistance: 0, skipped: 0, keys: [] };
 
-  // A spot holding three things on your list beats one holding a single item,
-  // even a little further out; distance only breaks the tie.
-  const nearest = [...spots]
-    .sort((a, b) => b.hits.length - a.hits.length
-      || distance2d(spawn.position, a.position) - distance2d(spawn.position, b.position))
-    .slice(0, Math.min(limit, MAX_STOPS));
+  const distances = spots.map((spot) => distance2d(spawn.position, spot.position));
+  const half = halfLife(distances);
+  const nearest = spots
+    .map((spot, index) => ({ spot, score: spot.chance / (1 + distances[index] / half) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Number.isFinite(limit) ? limit : spots.length)
+    .map((ranked) => ranked.spot);
 
   const ordered = twoOpt(spawn.position, nearestNeighbour(spawn.position, nearest));
 
@@ -168,7 +212,8 @@ export function buildLootRun(
     stops.push({
       order: index + 1,
       label: spot.container ?? `Loose loot ${index + 1}`,
-      description: [what || 'Possible spawn', nearby.length > 0 ? 'a lock nearby' : null]
+      description: [`${percent(spot.chance)} · ${what || 'possible spawn'}`,
+        nearby.length > 0 ? 'a lock nearby' : null]
         .filter(Boolean).join(' — '),
       position: spot.position,
       kind: 'objective',
@@ -187,6 +232,13 @@ export function buildLootRun(
     keys: Array.from(keyCounts, ([id, count]) => ({ id, stops: count }))
       .sort((a, b) => b.stops - a.stops),
   };
+}
+
+/** Odds read as a percentage, kept legible when they are tiny. */
+function percent(chance: number): string {
+  if (chance >= 0.1) return `${Math.round(chance * 100)}%`;
+  if (chance >= 0.01) return `${(chance * 100).toFixed(1)}%`;
+  return `${(chance * 100).toFixed(2)}%`;
 }
 
 function nearestNeighbour(spawn: Vec3, points: LootSpot[]): LootSpot[] {
@@ -208,37 +260,41 @@ function nearestNeighbour(spawn: Vec3, points: LootSpot[]): LootSpot[] {
   return ordered;
 }
 
-function pathLength(spawn: Vec3, points: LootSpot[]): number {
-  let total = 0;
-  let previous = spawn;
-  for (const point of points) {
-    total += distance2d(previous, point.position);
-    previous = point.position;
-  }
-  return total;
-}
-
+/**
+ * 2-opt on an open path, judged by the two edges a reversal actually changes
+ * rather than by re-walking the whole route. Rebuilding the array and measuring
+ * it inside the loop was fine for twenty stops and hopeless for the hundreds
+ * "All stops" can ask for -- cubic work against quadratic.
+ */
 function twoOpt(spawn: Vec3, points: LootSpot[]): LootSpot[] {
-  if (points.length < 3) return points;
+  const count = points.length;
+  if (count < 3) return points;
 
-  let best = [...points];
-  let bestLength = pathLength(spawn, best);
-  let improved = true;
-  let guard = 0;
+  const best = [...points];
+  const at = (index: number) => (index < 0 ? spawn : best[index].position);
+  // Long routes get fewer sweeps; nearly all the gain lands in the first few.
+  const sweeps = count > 200 ? 4 : 50;
 
-  while (improved && guard++ < 50) {
-    improved = false;
-    for (let i = 0; i < best.length - 1; i++) {
-      for (let k = i + 1; k < best.length; k++) {
-        const candidate = [...best.slice(0, i), ...best.slice(i, k + 1).reverse(), ...best.slice(k + 1)];
-        const length = pathLength(spawn, candidate);
-        if (length < bestLength - 0.01) {
-          best = candidate;
-          bestLength = length;
+  for (let sweep = 0; sweep < sweeps; sweep++) {
+    let improved = false;
+    for (let i = 0; i < count - 1; i++) {
+      for (let k = i + 1; k < count; k++) {
+        const tail = k + 1 < count;
+        const before = distance2d(at(i - 1), at(i)) + (tail ? distance2d(at(k), at(k + 1)) : 0);
+        const after = distance2d(at(i - 1), at(k)) + (tail ? distance2d(at(i), at(k + 1)) : 0);
+        if (after < before - 0.01) {
+          reverseBetween(best, i, k);
           improved = true;
         }
       }
     }
+    if (!improved) break;
   }
   return best;
+}
+
+function reverseBetween(points: LootSpot[], from: number, to: number): void {
+  for (let left = from, right = to; left < right; left++, right--) {
+    [points[left], points[right]] = [points[right], points[left]];
+  }
 }

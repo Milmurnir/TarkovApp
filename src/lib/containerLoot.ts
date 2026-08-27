@@ -4,9 +4,8 @@
  * json.tarkov.dev places containers on the map but says nothing about their
  * contents, so "which containers might hold bolts" cannot be answered from it.
  * SPT ships the static loot tables that can, and
- * scripts/generate_map_data.py folds them into one file: the union across every
- * map, since a route needs to know what is possible rather than how likely it
- * is here specifically.
+ * scripts/generate_map_data.py folds them into one file: which items each kind
+ * of container can hold, and the chance one opened container actually has it.
  */
 
 export interface ContainerLoot {
@@ -16,9 +15,11 @@ export interface ContainerLoot {
   names: string[];
   /** Container template id -> indexes into `ids`. */
   containers: Record<string, number[]>;
+  /** Chance in parts per million, parallel to `containers`. */
+  chances: Record<string, number[]>;
 }
 
-const EMPTY: ContainerLoot = { ids: [], names: [], containers: {} };
+const EMPTY: ContainerLoot = { ids: [], names: [], containers: {}, chances: {} };
 
 let loaded: ContainerLoot | null = null;
 let pending: Promise<ContainerLoot> | null = null;
@@ -38,8 +39,17 @@ export async function loadContainerLoot(): Promise<ContainerLoot> {
   return pending;
 }
 
-/** Container templates that can hold any of these items. */
-export function containersHolding(itemIds: string[], loot: ContainerLoot): Map<string, string[]> {
+/** One item a container kind can hold, with the chance it does. */
+export interface ContainerHit {
+  id: string;
+  /** Chance an opened container of this kind holds it, 0..1. */
+  chance: number;
+}
+
+/** Container templates that can hold any of these items, with the odds. */
+export function containersHolding(
+  itemIds: string[], loot: ContainerLoot,
+): Map<string, ContainerHit[]> {
   const wanted = new Map<string, number>();
   for (const id of itemIds) {
     const index = loot.ids.indexOf(id);
@@ -47,10 +57,19 @@ export function containersHolding(itemIds: string[], loot: ContainerLoot): Map<s
   }
   if (wanted.size === 0) return new Map();
 
-  const result = new Map<string, string[]>();
+  const result = new Map<string, ContainerHit[]>();
   for (const [template, indexes] of Object.entries(loot.containers)) {
-    const inside = new Set(indexes);
-    const holds = [...wanted].filter(([, index]) => inside.has(index)).map(([id]) => id);
+    // The chance list runs parallel to the index list, so the position of an
+    // item in `indexes` is where its odds live.
+    const at = new Map(indexes.map((index, position) => [index, position]));
+    const odds = loot.chances[template] ?? [];
+
+    const holds: ContainerHit[] = [];
+    for (const [id, index] of wanted) {
+      const position = at.get(index);
+      if (position === undefined) continue;
+      holds.push({ id, chance: (odds[position] ?? 0) / 1e6 });
+    }
     if (holds.length > 0) result.set(template, holds);
   }
   return result;

@@ -336,16 +336,28 @@ def write_loot_item_names():
 
 
 def write_container_loot():
-    """What each kind of container can hold, merged across every map.
+    """What each kind of container can hold, and how often, across every map.
 
     json.tarkov.dev places containers but says nothing about their contents, so
     "which containers might hold bolts" is unanswerable from it alone. SPT ships
-    the static loot tables that answer it. Probabilities differ per map; the
-    union of possibilities is what a route needs, so that is what is kept.
+    the static loot tables that answer it, as two weighted distributions per
+    container: how many items it rolls, and which item each roll draws. Together
+    those give the chance one opened container holds a given item:
+
+        p     = relativeProbability / sum of them all      (one draw)
+        rolls = expected count from itemcountDistribution
+        chance = 1 - (1 - p) ** rolls                      (at least one)
+
+    Those weights differ per map -- the median spread around the mean is 25% --
+    but keeping ten copies of a 14,000-pair table to chase that is not worth the
+    megabytes, so the mean across the maps a container appears on is stored.
+    Chances are parts per million, since a rare item in a fat container sits
+    around 1e-4 and would round away as a percentage.
     """
     ids = []
     index = {}
     containers = {}
+    chances = {}
 
     try:
         locale = get(SPT_LOCALE)
@@ -361,7 +373,11 @@ def write_container_loot():
 
         for template, info in static.items():
             bucket = containers.setdefault(template, set())
-            for entry in info.get('itemDistribution') or []:
+            distribution = info.get('itemDistribution') or []
+            total = sum(e.get('relativeProbability') or 0 for e in distribution) or 1
+            rolls = expected_count(info.get('itemcountDistribution') or [])
+
+            for entry in distribution:
                 item = entry.get('tpl')
                 if not item or not locale.get(f'{item} Name'):
                     continue
@@ -369,12 +385,23 @@ def write_container_loot():
                     index[item] = len(ids)
                     ids.append(item)
                 bucket.add(index[item])
+                p = (entry.get('relativeProbability') or 0) / total
+                chances.setdefault((template, index[item]), []).append(1 - (1 - p) ** rolls)
 
     payload = {
         'ids': ids,
         'names': [locale.get(f'{item} Name', item) for item in ids],
-        'containers': {template: sorted(items) for template, items in containers.items()},
+        'containers': {},
+        'chances': {},
     }
+    for template, items in containers.items():
+        ordered = sorted(items)
+        payload['containers'][template] = ordered
+        # Floored at one in a million: an item that can appear should never read
+        # as impossible just because it rounded down.
+        payload['chances'][template] = [
+            max(1, round(1e6 * mean(chances.get((template, i), [0])))) for i in ordered
+        ]
 
     path = os.path.join(DATA_DIR, 'container-loot.json')
     with open(path, 'w', encoding='utf-8') as handle:
@@ -383,6 +410,19 @@ def write_container_loot():
     pairs = sum(len(v) for v in containers.values())
     size = os.path.getsize(path) // 1024
     print(f'container loot       kinds={len(containers):3d} items={len(ids):5d} pairs={pairs:6d} {size} KB')
+
+
+def expected_count(distribution):
+    """Average number of items a container rolls, from its count weights."""
+    total = sum(e.get('relativeProbability') or 0 for e in distribution)
+    if not total:
+        return 1.0
+    return sum((e.get('count') or 0) * (e.get('relativeProbability') or 0)
+               for e in distribution) / total
+
+
+def mean(values):
+    return sum(values) / len(values) if values else 0.0
 
 
 def write_short_names():
