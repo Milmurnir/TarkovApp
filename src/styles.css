@@ -400,9 +400,10 @@ button:hover { border-color: var(--accent); }
 .loot-kinds li { padding: 2px 0; }
 .loot-kinds label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
 .loot-kinds input { width: auto; flex: 0 0 auto; }
-/* The name takes the slack. Targeting the first span instead stretched the
-   colour swatch into a bar across the row and pushed the name off the end. */
-.loot-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Name then count, both hard against the left, with the slack after them —
+   a number parked at the far edge makes the eye travel for no reason. */
+.loot-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loot-kinds label .muted { flex: 0 0 auto; margin-right: auto; }
 
 .density-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
 .density-row input[type="range"] { flex: 1; min-width: 0; padding: 0; }
