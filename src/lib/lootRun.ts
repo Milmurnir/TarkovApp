@@ -34,6 +34,24 @@ export const LOCK_RADIUS = 12;
 const LOOSE_SPAWN_CHANCE = 0.25;
 
 /**
+ * How the two halves of the score are weighed against each other.
+ *
+ * 0 is "nearest, whatever the odds", 1 is "best odds, however far". At a half
+ * each gets an equal say -- and since raising both sides to the same power
+ * leaves the order alone, a half is exactly the plain odds-over-distance
+ * ranking rather than some third thing.
+ */
+export const DEFAULT_BALANCE = 0.5;
+
+/** Stop counts the slider offers, trimmed to what the map can actually give. */
+export function stopChoices(spots: number): number[] {
+  const rungs = [1, 2, 3, 5, 8, 10, 15, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750];
+  // The top of the range is always every spot, whatever that number turns out
+  // to be, so the slider can never stop just short of "all of them".
+  return [...rungs.filter((count) => count < spots), Infinity];
+}
+
+/**
  * Where distance starts cancelling out odds.
  *
  * A spot at the median distance from your spawn counts for half what the same
@@ -162,8 +180,9 @@ export interface LootRun {
  * Which spots make the cut is the interesting half. Neither odds nor distance
  * decides alone: a 12% toolbox across the map loses to a 12% one by your spawn,
  * and a 0.6% medcase next door loses to a 12% toolbox a little further out. So
- * each spot is scored as its odds discounted by how far it sits, and the best
- * `limit` are kept -- `Infinity` keeps every one.
+ * each spot is scored as its odds discounted by how far it sits, `balance`
+ * decides which of the two leans harder, and the best `limit` are kept --
+ * `Infinity` keeps every one.
  */
 export function buildLootRun(
   spots: LootSpot[],
@@ -171,13 +190,21 @@ export function buildLootRun(
   spawn: { position: Vec3; zoneName: string | null },
   limit: number,
   names: Record<string, string> = {},
+  balance: number = DEFAULT_BALANCE,
 ): LootRun {
   if (spots.length === 0) return { stops: [], totalDistance: 0, skipped: 0, keys: [] };
 
   const distances = spots.map((spot) => distance2d(spawn.position, spot.position));
   const half = halfLife(distances);
+  const weight = Math.min(1, Math.max(0, balance));
   const nearest = spots
-    .map((spot, index) => ({ spot, score: spot.chance / (1 + distances[index] / half) }))
+    .map((spot, index) => ({
+      spot,
+      // Both sides raised to their share of the weight: at either end the other
+      // one flattens to 1 and stops having an opinion.
+      score: Math.pow(Math.max(spot.chance, 1e-9), weight)
+        / Math.pow(1 + distances[index] / half, 1 - weight),
+    }))
     .sort((a, b) => b.score - a.score)
     .slice(0, Number.isFinite(limit) ? limit : spots.length)
     .map((ranked) => ranked.spot);

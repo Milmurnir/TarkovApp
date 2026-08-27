@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { searchItems, type ItemChoice, type LootRun } from '../lib/lootRun';
+import { searchItems, stopChoices, type ItemChoice, type LootRun } from '../lib/lootRun';
 
 interface Props {
   items: ItemChoice[];
@@ -12,14 +12,23 @@ interface Props {
   run: LootRun | null;
   limit: number;
   onLimit: (limit: number) => void;
+  /** 0 walks the shortest way, 1 chases the best odds. */
+  balance: number;
+  onBalance: (balance: number) => void;
   /** Key item id -> name, for saying which key to bring. */
   keyNames: Record<string, string>;
   mapName: string;
   hasSpawn: boolean;
 }
 
-/** Infinity is "every spot that can hold it", however many that turns out to be. */
-const LIMITS = [5, 10, 20, 50, Infinity];
+/** What the balance slider is doing, in words, so the number is not the only clue. */
+function balanceReads(balance: number): string {
+  if (balance <= 0.05) return 'the shortest walk, whatever the odds are';
+  if (balance < 0.4) return 'a short walk, odds only breaking ties';
+  if (balance <= 0.6) return 'odds and walking distance, evenly';
+  if (balance < 0.95) return 'the better odds, walking further for them';
+  return 'the best odds on the map, however far they are';
+}
 
 /**
  * A raid planned around one item instead of around quests.
@@ -29,7 +38,8 @@ const LIMITS = [5, 10, 20, 50, Infinity];
  * something and delivers none is worse than no route at all.
  */
 export default function LootRunPanel({
-  items, chosen, onAdd, onRemove, onClear, spots, run, limit, onLimit, keyNames, mapName, hasSpawn,
+  items, chosen, onAdd, onRemove, onClear, spots, run, limit, onLimit,
+  balance, onBalance, keyNames, mapName, hasSpawn,
 }: Props) {
   const [query, setQuery] = useState('');
   const picked = useMemo(() => new Set(chosen.map((item) => item.id)), [chosen]);
@@ -37,6 +47,15 @@ export default function LootRunPanel({
     () => searchItems(items, query).filter((item) => !picked.has(item.id)),
     [items, query, picked],
   );
+
+  const choices = useMemo(() => stopChoices(spots), [spots]);
+  // The slider indexes the rungs rather than carrying the count itself, so a
+  // limit left over from a bigger map settles on the nearest rung that fits.
+  const chosenStop = useMemo(() => {
+    const index = choices.findIndex((count) => count >= limit);
+    return index < 0 ? choices.length - 1 : index;
+  }, [choices, limit]);
+  const stopCount = choices[chosenStop];
 
   if (items.length === 0) {
     return (
@@ -104,18 +123,24 @@ export default function LootRunPanel({
 
           <section className="section">
             <h3>How many stops</h3>
-            <div className="loot-radius">
-              {LIMITS.map((count) => (
-                <button key={count} className={limit === count ? 'active' : ''} onClick={() => onLimit(count)}>
-                  {Number.isFinite(count) ? count : 'All'}
-                </button>
-              ))}
-            </div>
+            <label className="density-row">
+              <input
+                type="range"
+                min={0}
+                max={choices.length - 1}
+                value={chosenStop}
+                onChange={(event) => onLimit(choices[Number(event.target.value)])}
+              />
+              <span className="small">
+                {Number.isFinite(stopCount)
+                  ? <><strong>{stopCount}</strong> stop{stopCount === 1 ? '' : 's'}</>
+                  : <><strong>all {spots}</strong></>}
+              </span>
+            </label>
             {run && run.skipped > 0 && (
               <p className="muted small">
-                The {run.stops.length - 1} best of {spots}: each spot is ranked by how often it
-                actually holds one of these, discounted by how far you have to walk for it.
-                The other {run.skipped} are worse odds, further out, or both.
+                The best {run.stops.length - 1} of {spots}. The other {run.skipped} are worse
+                odds, further out, or both.
               </p>
             )}
             {run && run.skipped === 0 && run.stops.length > 25 && (
@@ -124,6 +149,26 @@ export default function LootRunPanel({
                 lot of ground for one raid.
               </p>
             )}
+          </section>
+
+          <section className="section">
+            <h3>What to chase</h3>
+            <label className="density-row">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round(balance * 100)}
+                onChange={(event) => onBalance(Number(event.target.value) / 100)}
+              />
+              <span className="small">{Math.round(balance * 100)}% odds</span>
+            </label>
+            <p className="muted small">
+              Picks {balanceReads(balance)}. A spot's odds are how often it really holds one of
+              these; distance is measured from your spawn, half-weighted once you are past the
+              average spot.
+            </p>
           </section>
 
           {!hasSpawn && (

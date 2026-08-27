@@ -11,7 +11,7 @@ import CoopNotices from './components/CoopNotices';
 import LootPanel from './components/LootPanel';
 import { byDensity, loadContainerNames, placeContainers } from './lib/loot';
 import LootRunPanel from './components/LootRunPanel';
-import { buildLootRun, itemsOnMap, spotsFor, type ItemChoice } from './lib/lootRun';
+import { buildLootRun, DEFAULT_BALANCE, itemsOnMap, spotsFor, type ItemChoice } from './lib/lootRun';
 import {
   containerItemChoices, containersHolding, loadContainerLoot, type ContainerLoot,
 } from './lib/containerLoot';
@@ -80,6 +80,7 @@ export default function App() {
   const [mode, setMode] = useState<'quests' | 'loot'>('quests');
   const [lootWanted, setLootWanted] = useState<ItemChoice[]>([]);
   const [lootLimit, setLootLimit] = useState(10);
+  const [lootBalance, setLootBalance] = useState(DEFAULT_BALANCE);
   const [itemNames, setItemNames] = useState<Record<string, string>>({});
   const [containerLoot, setContainerLoot] = useState<ContainerLoot>(
     { ids: [], names: [], containers: {}, chances: {} },
@@ -484,8 +485,8 @@ export default function App() {
 
   const lootRun = useMemo(() => {
     if (mode !== 'loot' || lootSpots.length === 0 || !routeStart) return null;
-    return buildLootRun(lootSpots, looseLoot.locks, routeStart, lootLimit, allItemNames);
-  }, [mode, lootSpots, looseLoot, routeStart, lootLimit, allItemNames]);
+    return buildLootRun(lootSpots, looseLoot.locks, routeStart, lootLimit, allItemNames, lootBalance);
+  }, [mode, lootSpots, looseLoot, routeStart, lootLimit, allItemNames, lootBalance]);
 
   const route = useMemo(() => {
     if (tasks.length === 0 || !api || !routeStart) return null;
@@ -603,6 +604,8 @@ export default function App() {
               spots={lootSpots.length}
               run={lootRun}
               limit={lootLimit}
+              balance={lootBalance}
+              onBalance={setLootBalance}
               onLimit={setLootLimit}
               keyNames={allItemNames}
               mapName={wikiMapName || mapName}
