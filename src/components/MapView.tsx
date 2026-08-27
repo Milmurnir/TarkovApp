@@ -79,6 +79,18 @@ export default function MapView({
   const points = stops.map((s) => ({ ...gameToSvg(s.position, projection, viewBox), stop: s }));
   const polyline = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
+  /**
+   * Undoes the zoom for the marks laid over the map.
+   *
+   * Everything lives inside one scaled SVG, so a marker at zoom 8 was drawn
+   * eight times the size and four stops in one building turned into a stack of
+   * overlapping discs covering the street they were meant to point at. Their
+   * size says nothing about the map -- it is just how big a thing has to be to
+   * be clickable -- so they hold their screen size and let the map grow past
+   * them, which is also what the route line already does with its stroke.
+   */
+  const pin = `scale(${(1 / zoom).toFixed(4)})`;
+
   /** Screen pixel -> SVG user units, accounting for the current zoom and pan. */
   function toSvgPoint(clientX: number, clientY: number): { x: number; y: number } | null {
     const svg = svgRef.current;
@@ -164,7 +176,7 @@ export default function MapView({
           {spawnPoints.map((spawn, i) => {
             const p = gameToSvg({ x: spawn.x, y: 0, z: spawn.z }, projection, viewBox);
             return (
-              <circle key={`sp-${i}`} cx={p.x} cy={p.y} r={2} fill="#4ade80" opacity={0.35}
+              <circle key={`sp-${i}`} cx={p.x} cy={p.y} r={2 / zoom} fill="#4ade80" opacity={0.35}
                 style={{ pointerEvents: 'none' }} />
             );
           })}
@@ -177,7 +189,7 @@ export default function MapView({
               // Hoverable so the title says which container this is. No
               // handlers of its own, so the press still reaches the viewport
               // underneath and clicking here still drops a spawn point.
-              <g key={`loot-${i}`} transform={`translate(${p.x} ${p.y})`} className="loot-mark">
+              <g key={`loot-${i}`} transform={`translate(${p.x} ${p.y}) ${pin}`} className="loot-mark">
                 <LootGlyph shape={look.shape} colour={look.colour} />
                 <title>
                   {container.name}
@@ -190,7 +202,7 @@ export default function MapView({
           {sniperSpawns.map((sniper, i) => {
             const p = gameToSvg(sniper.position, projection, viewBox);
             return (
-              <g key={`sniper-${i}`} transform={`translate(${p.x} ${p.y})`} style={{ pointerEvents: 'none' }}>
+              <g key={`sniper-${i}`} transform={`translate(${p.x} ${p.y}) ${pin}`} style={{ pointerEvents: 'none' }}>
                 <circle r={7} fill="#ef4444" fillOpacity={0.25} stroke="#ef4444" strokeWidth={1.5} />
                 <path d="M -3 -3 L 3 3 M 3 -3 L -3 3" stroke="#ef4444" strokeWidth={1.5} />
                 <title>{`Sniper scav${sniper.zoneName ? ` — ${sniper.zoneName}` : ''}`}</title>
@@ -224,7 +236,7 @@ export default function MapView({
             return (
               <g
                 key={`${p.stop.kind}-${p.stop.order}`}
-                transform={`translate(${p.x} ${p.y})`}
+                transform={`translate(${p.x} ${p.y}) ${pin}`}
                 className="map-marker"
                 opacity={dimmed ? 0.35 : 1}
                 onPointerDown={(event) => {
