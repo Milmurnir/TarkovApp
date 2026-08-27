@@ -110,7 +110,7 @@ export default function LootPanel({
                       onChange={() => onToggleName(name)}
                     />
                     <span className="loot-swatch" style={{ background: lootLook(name).colour }} />
-                    <span>{name}</span>
+                    <span className="loot-name">{name}</span>
                     <span className="muted small">{count}</span>
                   </label>
                 </li>

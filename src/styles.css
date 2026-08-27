@@ -400,7 +400,9 @@ button:hover { border-color: var(--accent); }
 .loot-kinds li { padding: 2px 0; }
 .loot-kinds label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
 .loot-kinds input { width: auto; flex: 0 0 auto; }
-.loot-kinds label span:first-of-type { flex: 1; }
+/* The name takes the slack. Targeting the first span instead stretched the
+   colour swatch into a bar across the row and pushed the name off the end. */
+.loot-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .density-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
 .density-row input[type="range"] { flex: 1; min-width: 0; padding: 0; }
@@ -423,3 +425,7 @@ button:hover { border-color: var(--accent); }
 
 .loot-run-chosen { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
 .loot-run-chosen button { font-size: 12px; padding: 4px 10px; }
+
+/* Loot marks answer what they are on hover; the map still takes the click. */
+.loot-mark { cursor: help; }
+.loot-mark:hover { filter: brightness(1.25); }

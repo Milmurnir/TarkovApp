@@ -174,7 +174,10 @@ export default function MapView({
             const p = gameToSvg(container.position, projection, viewBox);
             const look = lootLook(container.name);
             return (
-              <g key={`loot-${i}`} transform={`translate(${p.x} ${p.y})`} style={{ pointerEvents: 'none' }}>
+              // Hoverable so the title says which container this is. No
+              // handlers of its own, so the press still reaches the viewport
+              // underneath and clicking here still drops a spawn point.
+              <g key={`loot-${i}`} transform={`translate(${p.x} ${p.y})`} className="loot-mark">
                 <LootGlyph shape={look.shape} colour={look.colour} />
                 <title>
                   {container.name}
