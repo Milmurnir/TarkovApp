@@ -16,3 +16,7 @@ Thumbs.db
 
 # Local wrangler state from running the relay with `wrangler dev`
 relay/.wrangler/
+
+# Python bytecode from the generator script
+__pycache__/
+*.pyc
