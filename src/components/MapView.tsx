@@ -28,6 +28,8 @@ interface Props {
   selectedOrder?: number | null;
   /** Quest whose dots should stand out; others are dimmed. */
   highlightQuest?: string | null;
+  /** Multiplier on the spawn/objective/switch/extract markers, from Settings. */
+  routeIconScale?: number;
 }
 
 const COLORS: Record<RouteStop['kind'], string> = {
@@ -51,7 +53,7 @@ const DRAG_THRESHOLD = 5;
 export default function MapView({
   svgUrl, viewBox, projection,
   stops, labels = [], spawnPoints = [], sniperSpawns = [], transits = [], lootContainers = [],
-  onPickSpawn, onSelectStop, selectedOrder = null, highlightQuest = null,
+  onPickSpawn, onSelectStop, selectedOrder = null, highlightQuest = null, routeIconScale = 1,
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -92,6 +94,8 @@ export default function MapView({
    * them, which is also what the route line already does with its stroke.
    */
   const pin = `scale(${(1 / zoom).toFixed(4)})`;
+  /** Same idea as `pin`, but also carries the Settings size preference. */
+  const routePin = `scale(${(routeIconScale / zoom).toFixed(4)})`;
 
   /** Screen pixel -> SVG user units, accounting for the current zoom and pan. */
   function toSvgPoint(clientX: number, clientY: number): { x: number; y: number } | null {
@@ -256,7 +260,7 @@ export default function MapView({
             return (
               <g
                 key={`${p.stop.kind}-${p.stop.order}`}
-                transform={`translate(${p.x} ${p.y}) ${pin}`}
+                transform={`translate(${p.x} ${p.y}) ${routePin}`}
                 className="map-marker"
                 opacity={dimmed ? 0.35 : 1}
                 onPointerDown={(event) => {

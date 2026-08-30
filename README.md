@@ -138,6 +138,8 @@ places at least 94% of its spawns and labels inside the image (eight of nine hit
   toggleable in the Map panel.
 - **Click a quest** to see the wiki's own guide for it: the Related Quest Items
   table, the walkthrough text and the screenshots.
+- **Settings tab** holds app-wide preferences, kept on this machine. Currently
+  a slider for the map's route icon size; more belong here as they come up.
 - Markers: `S` spawn, numbered objectives, `⚡` switch, `E` extract, `T` transit.
 
 ## Extracts

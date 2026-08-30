@@ -416,7 +416,7 @@ input[type="range"] { accent-color: var(--accent); }
 .loot-legend { list-style: none; margin: 4px 0; padding: 0; }
 .loot-legend li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 
-/* Quest routing or a loot run: two modes, one map. */
+/* Quest routing, a loot run, or settings: one map, a few sidebars. */
 .mode-tabs { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .mode-tabs button {
   flex: 1; border: 0; border-radius: 0; background: transparent;

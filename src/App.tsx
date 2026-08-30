@@ -17,6 +17,8 @@ import {
 } from './lib/containerLoot';
 import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
+import SettingsPanel from './components/SettingsPanel';
+import { loadSettings, saveSettings, type Settings } from './lib/settings';
 import {
   emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, saveProgress,
   standingById, withCompleted, type Progress, type ProgressExport,
@@ -78,7 +80,8 @@ export default function App() {
   const [lootDensity, setLootDensity] = useState(1);
   const [containerNames, setContainerNames] = useState<Record<string, string>>({});
   /** Quest routing, or a raid built around one item. */
-  const [mode, setMode] = useState<'quests' | 'loot'>('quests');
+  const [mode, setMode] = useState<'quests' | 'loot' | 'settings'>('quests');
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const [lootWanted, setLootWanted] = useState<ItemChoice[]>([]);
   const [lootLimit, setLootLimit] = useState(10);
   const [lootBalance, setLootBalance] = useState(DEFAULT_BALANCE);
@@ -95,6 +98,14 @@ export default function App() {
   /** Every progress change is written through, so a crash loses nothing. */
   function updateProgress(next: Progress) {
     setProgress(saveProgress(next));
+  }
+
+  function updateSettings(patch: Partial<Settings>) {
+    setSettings((current) => {
+      const next = { ...current, ...patch };
+      saveSettings(next);
+      return next;
+    });
   }
 
   // A fresh install has an empty localStorage but the user-data file is still
@@ -588,7 +599,17 @@ export default function App() {
             >
               Loot run
             </button>
+            <button
+              className={mode === 'settings' ? 'active' : ''}
+              onClick={() => setMode('settings')}
+            >
+              Settings
+            </button>
           </div>
+
+          {mode === 'settings' && (
+            <SettingsPanel settings={settings} onChange={updateSettings} />
+          )}
 
           <div className="panel">
             <h2>Map</h2>
@@ -845,6 +866,7 @@ export default function App() {
               spawnPoints={activeZone ? activeZone.spawns.map((sp) => ({ x: sp.position.x, z: sp.position.z })) : []}
               sniperSpawns={showSnipers ? sniperSpawns : []}
               transits={showTransits ? transits : []}
+              routeIconScale={settings.routeIconScale}
               lootContainers={visibleLoot}
               onPickSpawn={(position) => { setClickedSpawn(position); setSelectedOrder(null); }}
               onSelectStop={(stop) => {
