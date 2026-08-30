@@ -19,6 +19,7 @@ import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import SettingsPanel from './components/SettingsPanel';
 import { loadSettings, saveSettings, type Settings } from './lib/settings';
+import { loadFleaItems } from './lib/priceCheck';
 import {
   emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, saveProgress,
   standingById, withCompleted, type Progress, type ProgressExport,
@@ -147,6 +148,13 @@ export default function App() {
         setIndexProgress(null);
       })
       .catch((e) => setWikiError(String(e)));
+  }, []);
+
+  // Warms the price-check overlay's item cache so the first hotkey press mid-raid
+  // is not the moment it starts an 18 MB fetch. Silent on failure: the overlay
+  // retries this itself and reports the error there, where it is actually seen.
+  useEffect(() => {
+    loadFleaItems().catch(() => {});
   }, []);
 
   // Reload everything map-specific when the map changes.

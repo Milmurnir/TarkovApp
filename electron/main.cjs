@@ -1,16 +1,24 @@
 'use strict';
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell } = require('electron');
 const path = require('path');
 const { startServer } = require('./server.cjs');
 const { getUiRoot, registerUpdateIpc } = require('./updater.cjs');
 const { registerStoreIpc } = require('./store.cjs');
+const {
+  createOverlayWindow, showOverlay, registerPriceCheckHotkey, unregisterPriceCheckHotkey,
+} = require('./priceCheck.cjs');
+const { createTrayIcon } = require('./trayIcon.cjs');
 
 /** Chosen to be an unlikely collision; see startServer for why it is fixed. */
 const DEFAULT_PORT = 47821;
 
 let serverHandle = null;
 let mainWindow = null;
+let overlayWindow = null;
+let tray = null;
+/** Set only by a real quit path, so a window's own close button can hide it instead. */
+let quitting = false;
 
 async function createWindow() {
   // Works both from source and from inside the packaged asar. A frontend
@@ -56,7 +64,34 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
+  // The whole point of the tray icon: closing the window backgrounds the app
+  // (so the price-check hotkey keeps working) instead of quitting it.
+  window.on('close', (event) => {
+    if (!quitting) {
+      event.preventDefault();
+      window.hide();
+    }
+  });
+
   window.loadURL(url);
+
+  overlayWindow = createOverlayWindow(url, () => quitting);
+  registerPriceCheckHotkey(() => overlayWindow);
+  tray = createTray();
+}
+
+function createTray() {
+  const t = new Tray(createTrayIcon());
+  t.setToolTip('Tarkov Quest Router');
+  t.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show Tarkov Quest Router', click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+    { label: 'Price check (hold Ctrl, tap G twice)', click: () => showOverlay(overlayWindow) },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { quitting = true; app.quit(); } },
+  ]));
+  // The one-click default on Windows/Linux; macOS ignores it in favour of the menu.
+  t.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
+  return t;
 }
 
 registerUpdateIpc(() => mainWindow);
@@ -65,10 +100,19 @@ registerStoreIpc();
 app.whenReady().then(createWindow);
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+  else if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
+// Covers every path that actually means "exit" -- the tray's Quit item, Cmd+Q
+// on macOS -- so the window close handlers above stop hiding and let it happen.
+app.on('before-quit', () => { quitting = true; });
+
+app.on('will-quit', () => { unregisterPriceCheckHotkey(); });
+
 app.on('window-all-closed', () => {
+  // Both windows now hide rather than close on their own, so this only fires
+  // once quitting is already true (or on a platform without the tray habit).
   if (serverHandle) serverHandle.close();
   if (process.platform !== 'darwin') app.quit();
 });

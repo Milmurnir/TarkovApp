@@ -172,6 +172,50 @@ That yields Streets 9 (exactly matching the API's own count, which validates the
 method), Customs 4, Shoreline 4, Lighthouse 2, Woods 1, and none on Factory,
 Interchange, Reserve or Ground Zero, which genuinely have no marksman waves.
 
+## Price check overlay
+
+Hold **Ctrl** and tap **G** twice in quick succession (within 450ms), from
+anywhere — the game, another app, or with the main window minimized to
+tray — and a small always-on-top popup appears with the search box already
+focused. Type an item name, and every match shows its icon, current lowest
+flea price, and (on hover) its 24h average and per-slot price, live as you
+type. Esc, or clicking anywhere outside the popup, hides it again; the app
+keeps running in the tray.
+
+A few implementation notes:
+
+- **Why Ctrl+G+G is one accelerator, not a sequence.** Electron's
+  `globalShortcut` only registers single combos — there is no cross-platform
+  API for a true OS-level key *sequence*. `electron/priceCheck.cjs` registers
+  `Control+G` once and times the gap between firings itself: two presses
+  within 450ms count as the trigger. That is exactly what holding Ctrl and
+  double-tapping G generates (two separate keydowns on G, Ctrl held
+  throughout), so the reading implemented is (a) — hold Ctrl, tap G twice —
+  not a Ctrl+G chord repeated as a sequence, though both readings collapse to
+  the same detector.
+- **Prices, not a snapshot.** Item data (name, icon, dimensions, flea and
+  trader prices) comes from `/regular/items` on json.tarkov.dev — the same
+  replacement for the dead GraphQL API described above, since GraphQL's
+  `lastLowPrice`/`low24hPrice`/`avg24hPrice` fields carry over unchanged. The
+  catalogue is cached for two minutes; opening the overlay past that always
+  kicks a background refresh (never blocking the search box), and a price
+  that changes while the popup is already open updates in place.
+- **`lastLowPrice` is *the* number.** It is the lowest offer at the most
+  recent market scan — the closest thing to "what would I see on the flea
+  right now". `low24hPrice` then `avg24hPrice` are fallbacks for a
+  thinly-traded item with no current scan, and the tooltip on each row always
+  says which one it landed on.
+- **Items the game won't let you sell** (roubles, physical bitcoin, ...) are
+  flagged via the `noFlea` item type and show the best trader payout instead.
+- **Minimize-to-tray is new.** Closing the main window now hides it instead of
+  quitting, so the hotkey keeps working in the background — use the tray
+  icon's *Quit* to actually exit.
+- **Exclusive fullscreen is a real limitation.** An always-on-top window can
+  only draw over a game running borderless/fullscreen-windowed. True exclusive
+  fullscreen hands the whole display to the game at the driver level, and no
+  ordinary window — Electron's or anyone else's — can paint over that; nothing
+  in userspace can force it.
+
 ## The quest guide
 
 The wiki's Guide section is shown as the wiki renders it, because rebuilding the
@@ -321,6 +365,10 @@ effect. The line is stripped from the notes shown in the popup.
 scripts/generate_map_data.py   regenerates all map data and SVGs
 scripts/package-ui.mjs         packs dist into the release/ui.zip the updater pulls
 electron/store.cjs             user-data JSON store, so progress outlives an update
+electron/priceCheck.cjs        the price-check hotkey and its overlay window
+electron/trayIcon.cjs          hand-rolled PNG so the tray icon needs no asset file
+src/lib/priceCheck.ts          flea price fetch, cache and search for the overlay
+src/components/PriceCheckOverlay.tsx  the overlay's UI, loaded at `?overlay=1`
 src/lib/progress.ts            quest progress, the prerequisite walk and availability
 relay/worker.js                Cloudflare Worker relaying one shared run per code
 src/lib/sharedRun.ts           shared-state shape and the merge rule both sides apply

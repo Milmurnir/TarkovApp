@@ -1,9 +1,10 @@
 'use strict';
 
 /**
- * The only bridge between the page and Electron. It exposes the update flow and
- * nothing else, and the renderer never gets to say *what* to download: the main
- * process remembers that from its own check.
+ * The only bridge between the page and Electron: durable storage, the update
+ * flow, and the price-check overlay's show/hide channel. The renderer never
+ * gets to say *what* to update to, for instance -- the main process remembers
+ * that from its own check.
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -16,6 +17,20 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('appStore', {
   get: (key) => ipcRenderer.invoke('store:get', key),
   set: (key, value) => ipcRenderer.invoke('store:set', key, value),
+});
+
+/**
+ * The price-check overlay window's own bridge. `onShow` fires each time the
+ * global hotkey (re)opens the reused window, so the renderer knows to reset
+ * its query and refocus the input; `hide` is how Esc backs out of it.
+ */
+contextBridge.exposeInMainWorld('priceCheck', {
+  hide: () => ipcRenderer.send('pricecheck:hide'),
+  onShow: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('pricecheck:show', handler);
+    return () => ipcRenderer.removeListener('pricecheck:show', handler);
+  },
 });
 
 contextBridge.exposeInMainWorld('appUpdates', {

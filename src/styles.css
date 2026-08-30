@@ -432,3 +432,27 @@ input[type="range"] { accent-color: var(--accent); }
 /* Loot marks answer what they are on hover; the map still takes the click. */
 .loot-mark { cursor: help; }
 .loot-mark:hover { filter: brightness(1.25); }
+
+/*
+ * The price-check overlay. Its own small window, not the main layout, so it
+ * gets the full body rather than sitting inside `.app` -- a fixed size, a
+ * visible edge against whatever is behind it (the game, usually), and every
+ * bit of it reachable without a mouse.
+ */
+.overlay {
+  box-sizing: border-box;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+}
+.overlay input { font-size: 15px; }
+
+.overlay-suggestions { max-height: 170px; overflow-y: auto; }
+.overlay-suggestions li.active button { background: #1b2532; }
+.overlay-suggestions button { display: flex; align-items: center; gap: 8px; }
+.overlay-suggestions img { border-radius: 3px; background: #0e141c; object-fit: contain; flex-shrink: 0; }
+.suggestion-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-price { flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--accent); }
