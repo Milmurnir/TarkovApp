@@ -19,7 +19,7 @@ const BASE = '/api/json';
 // The two are versioned together on purpose: the index is only written during a
 // full fetch, so leaving the slice cache warm across an index change would leave
 // the index empty and every quest looking unavailable.
-const CACHE_PREFIX = 'tarkov-json-slice-v6:';
+const CACHE_PREFIX = 'tarkov-json-slice-v7:';
 const GRAPH_KEY = 'tarkov-task-index-v4';
 // Loose loot is hundreds of kilobytes per map and only the loot run wants it,
 // so it lives under its own key rather than bloating every quest lookup.
@@ -32,11 +32,21 @@ export interface SniperSpawn {
   position: Vec3;
 }
 
+/** A transit point into another map, e.g. the Woods exit into Reserve. */
+export interface MapTransitInfo {
+  id: string;
+  description: string | null;
+  /** normalizedName of the destination map, when the map id resolves. */
+  toMap: string | null;
+  position: Vec3;
+}
+
 export interface MapSlice {
   mapName: string;
   spawns: MapSpawn[];
   sniperSpawns: SniperSpawn[];
   extracts: MapExtract[];
+  transits: MapTransitInfo[];
   lootContainers: LootContainer[];
   tasks: Task[];
   fetchedAt: number;
@@ -219,6 +229,15 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
         })),
     }));
 
+  const transits: MapTransitInfo[] = (target.transits ?? [])
+    .filter((t: any) => t.position)
+    .map((t: any) => ({
+      id: t.id,
+      description: translate(mapText, t.description) || null,
+      toMap: idToName.get(t.map) ?? null,
+      position: t.position as Vec3,
+    }));
+
   // Positions as tuples and items as indexes into one table: the raw shape is
   // 328 KB on Streets, which localStorage cannot afford next to everything else.
   const looseItems: string[] = [];
@@ -368,6 +387,7 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
     spawns,
     sniperSpawns,
     extracts,
+    transits,
     lootContainers,
     tasks,
     fetchedAt: Date.now(),

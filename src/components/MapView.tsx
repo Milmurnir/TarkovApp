@@ -17,6 +17,8 @@ interface Props {
   spawnPoints?: { x: number; z: number }[];
   /** Sniper scav positions, drawn as danger markers. */
   sniperSpawns?: { zoneName: string | null; position: Vec3 }[];
+  /** Transit points to another map, e.g. the Woods exit into Reserve. */
+  transits?: { position: Vec3; label: string }[];
   /** Loot containers to draw, already filtered by the loot panel. */
   lootContainers?: PlacedContainer[];
   /** Called with game coordinates when the map itself is clicked. */
@@ -48,7 +50,7 @@ const DRAG_THRESHOLD = 5;
 
 export default function MapView({
   svgUrl, viewBox, projection,
-  stops, labels = [], spawnPoints = [], sniperSpawns = [], lootContainers = [],
+  stops, labels = [], spawnPoints = [], sniperSpawns = [], transits = [], lootContainers = [],
   onPickSpawn, onSelectStop, selectedOrder = null, highlightQuest = null,
 }: Props) {
   const [zoom, setZoom] = useState(1);
@@ -105,6 +107,9 @@ export default function MapView({
   }
 
   function onPointerDown(event: React.PointerEvent) {
+    // Middle-click normally triggers the browser's autoscroll cursor; that has
+    // nothing to do with placing a spawn, so it is swallowed here.
+    if (event.button === 1) event.preventDefault();
     dragging.current = { x: event.clientX - pan.x, y: event.clientY - pan.y };
     pressOrigin.current = { x: event.clientX, y: event.clientY };
     (event.target as Element).setPointerCapture?.(event.pointerId);
@@ -120,6 +125,9 @@ export default function MapView({
     dragging.current = null;
     pressOrigin.current = null;
     if (!origin || !onPickSpawn) return;
+    // Left-click still pans and clicks markers; only the middle button drops a
+    // spawn, so an ordinary click never relocates it by accident.
+    if (event.button !== 1) return;
 
     // Ignore the pointer-up that ends a pan.
     const travel = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
@@ -136,7 +144,7 @@ export default function MapView({
         <button onClick={() => setZoom((z) => Math.min(8, z * 1.3))}>+</button>
         <button onClick={() => setZoom((z) => Math.max(0.5, z / 1.3))}>−</button>
         <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
-        <span className="hint">click to set your spawn · ctrl+scroll to zoom · drag to pan</span>
+        <span className="hint">middle-click to set your spawn · ctrl+scroll to zoom · drag to pan</span>
       </div>
 
       <div
@@ -206,6 +214,18 @@ export default function MapView({
                 <circle r={7} fill="#ef4444" fillOpacity={0.25} stroke="#ef4444" strokeWidth={1.5} />
                 <path d="M -3 -3 L 3 3 M 3 -3 L -3 3" stroke="#ef4444" strokeWidth={1.5} />
                 <title>{`Sniper scav${sniper.zoneName ? ` — ${sniper.zoneName}` : ''}`}</title>
+              </g>
+            );
+          })}
+
+          {transits.map((transit, i) => {
+            const p = gameToSvg(transit.position, projection, viewBox);
+            return (
+              <g key={`transit-${i}`} transform={`translate(${p.x} ${p.y}) ${pin}`} style={{ pointerEvents: 'none' }}>
+                <rect x={-8} y={-8} width={16} height={16} rx={3} transform="rotate(45)"
+                  fill="#2dd4bf" fillOpacity={0.3} stroke="#2dd4bf" strokeWidth={1.5} />
+                <text textAnchor="middle" dy={4} fontSize={10} fontWeight={700} fill="#2dd4bf">T</text>
+                <title>{transit.label}</title>
               </g>
             );
           })}

@@ -1,7 +1,8 @@
 # Tarkov Quest Router
 
-Pick a map, enter a quest name, click where you spawned, and get an ordered
-route through that quest's objectives — plus exactly what you need to bring.
+Pick a map, enter a quest name, middle-click where you spawned, and get an
+ordered route through that quest's objectives — plus exactly what you need to
+bring.
 
 ## Running it
 
@@ -117,9 +118,10 @@ places at least 94% of its spawns and labels inside the image (eight of nine hit
 
 ## Using it
 
-- **Pick your spawn** by clicking anywhere on the map, or choose a spawn zone
-  from the list. Spawn zones come from the game files, so they are the real
-  infiltration points, and the extracts valid *from that spawn* are listed.
+- **Pick your spawn** by middle-clicking anywhere on the map, or choose a spawn
+  zone from the list. Spawn zones come from the game files, so they are the
+  real infiltration points, and the extracts valid *from that spawn* are
+  listed. Plain left-click is left free for panning and clicking markers.
 - **Add several quests** and they are routed together as one run, ordered across
   all of their objectives rather than one quest at a time.
 - **Each quest gets its own colour**, hashed from its name, so the same quest is
@@ -131,9 +133,12 @@ places at least 94% of its spawns and labels inside the image (eight of nine hit
   every selected quest into one pre-raid checklist, each entry tagged with the
   quest that needs it.
 - **Sniper scavs** are drawn as red ✕ markers, toggleable in the Map panel.
+- **Transits to other maps** (e.g. Woods into Reserve) are drawn as teal `T`
+  markers, listed under "Transit to other maps" in the spawn panel, and
+  toggleable in the Map panel.
 - **Click a quest** to see the wiki's own guide for it: the Related Quest Items
   table, the walkthrough text and the screenshots.
-- Markers: `S` spawn, numbered objectives, `⚡` switch, `E` extract.
+- Markers: `S` spawn, numbered objectives, `⚡` switch, `E` extract, `T` transit.
 
 ## Extracts
 

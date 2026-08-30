@@ -57,6 +57,7 @@ export default function App() {
   const [wikiByTitle, setWikiByTitle] = useState<Record<string, WikiQuest>>({});
   const [activeWiki, setActiveWiki] = useState<string | null>(null);
   const [showSnipers, setShowSnipers] = useState(true);
+  const [showTransits, setShowTransits] = useState(true);
   const [wikiError, setWikiError] = useState<string | null>(null);
   const [loadingQuest, setLoadingQuest] = useState(false);
 
@@ -399,6 +400,18 @@ export default function App() {
     if (mapData?.sniperSpawns?.length) return mapData.sniperSpawns;
     return api?.sniperSpawns ?? [];
   }, [mapData, api]);
+
+  /** Where this map lets you walk straight into another one, e.g. Woods into Reserve. */
+  const transits = useMemo(() => {
+    return (api?.transits ?? []).map((transit) => {
+      const destination = maps.find((m) => m.normalizedName === transit.toMap)?.wikiName ?? transit.toMap;
+      return {
+        position: transit.position,
+        label: destination ? `Transit to ${destination}` : (transit.description ?? 'Transit'),
+      };
+    });
+  }, [api, maps]);
+
   const zones = useMemo(() => (mapData ? spawnZones(mapData.spawns) : []), [mapData]);
   const activeZone = zones[Math.min(zoneIndex, Math.max(0, zones.length - 1))] ?? null;
 
@@ -591,6 +604,12 @@ export default function App() {
               <input type="checkbox" checked={showSnipers} onChange={(e) => setShowSnipers(e.target.checked)} />
               Show sniper scavs ({sniperSpawns.length})
             </label>
+            {transits.length > 0 && (
+              <label className="toggle">
+                <input type="checkbox" checked={showTransits} onChange={(e) => setShowTransits(e.target.checked)} />
+                Show transits ({transits.length})
+              </label>
+            )}
           </div>
 
           {mode === 'loot' && (
@@ -727,7 +746,7 @@ export default function App() {
                 <button onClick={() => setClickedSpawn(null)}>Undo</button>
               </p>
             ) : (
-              <p className="muted small">Click anywhere on the map to drop your spawn point.</p>
+              <p className="muted small">Middle-click anywhere on the map to drop your spawn point.</p>
             )}
 
             {zones.length > 0 && (
@@ -771,6 +790,15 @@ export default function App() {
                   </details>
                 )}
               </>
+            )}
+
+            {transits.length > 0 && (
+              <section className="section">
+                <h3>Transit to other maps</h3>
+                <ul>
+                  {transits.map((transit, i) => <li key={i}>{transit.label}</li>)}
+                </ul>
+              </section>
             )}
           </div>
 
@@ -816,6 +844,7 @@ export default function App() {
               labels={mapData.labels}
               spawnPoints={activeZone ? activeZone.spawns.map((sp) => ({ x: sp.position.x, z: sp.position.z })) : []}
               sniperSpawns={showSnipers ? sniperSpawns : []}
+              transits={showTransits ? transits : []}
               lootContainers={visibleLoot}
               onPickSpawn={(position) => { setClickedSpawn(position); setSelectedOrder(null); }}
               onSelectStop={(stop) => {
