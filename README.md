@@ -174,13 +174,13 @@ Interchange, Reserve or Ground Zero, which genuinely have no marksman waves.
 
 ## Price check overlay
 
-Hold **Ctrl** and tap **G** twice in quick succession (within 450ms), from
-anywhere — the game, another app, or with the main window minimized to
-tray — and a small always-on-top popup appears with the search box already
-focused. Type an item name, and every match shows its icon, current lowest
-flea price, and (on hover) its 24h average and per-slot price, live as you
-type. Esc, or clicking anywhere outside the popup, hides it again; the app
-keeps running in the tray.
+Hold **Ctrl** and tap **G** twice in quick succession (within 450ms) — the
+default combo, changeable in Settings — from anywhere — the game, another
+app, or with the main window minimized to tray — and a small always-on-top
+popup appears with the search box already focused. Type an item name, and
+every match shows its icon, current lowest flea price, and (on hover) its
+24h average and per-slot price, live as you type. Esc, or clicking anywhere
+outside the popup, hides it again; the app keeps running in the tray.
 
 A few implementation notes:
 
@@ -207,6 +207,15 @@ A few implementation notes:
   says which one it landed on.
 - **Items the game won't let you sell** (roubles, physical bitcoin, ...) are
   flagged via the `noFlea` item type and show the best trader payout instead.
+- **A hotkey conflict is surfaced, not silent.** `globalShortcut.register`
+  fails quietly if another app already owns the combo — previously that was
+  only a `console.error` nobody would ever see. Settings now shows whether the
+  binding is actually live, and a "Change..." control records a new combo (any
+  modifier plus a letter, digit or F-key) and tries it immediately; a rejected
+  change reports why and leaves the previous binding — if any — in place
+  rather than leaving the hotkey dead. The choice is stored outside the
+  renderer (`electron/store.cjs`), since it has to be read before any window,
+  let alone the Settings panel, exists.
 - **Minimize-to-tray is new.** Closing the main window now hides it instead of
   quitting, so the hotkey keeps working in the background — use the tray
   icon's *Quit* to actually exit.
@@ -368,6 +377,7 @@ electron/store.cjs             user-data JSON store, so progress outlives an upd
 electron/priceCheck.cjs        the price-check hotkey and its overlay window
 electron/trayIcon.cjs          hand-rolled PNG so the tray icon needs no asset file
 src/lib/priceCheck.ts          flea price fetch, cache and search for the overlay
+src/lib/hotkey.ts              keyboard event -> accelerator string, for the Settings recorder
 src/components/PriceCheckOverlay.tsx  the overlay's UI, loaded at `?overlay=1`
 src/lib/progress.ts            quest progress, the prerequisite walk and availability
 relay/worker.js                Cloudflare Worker relaying one shared run per code

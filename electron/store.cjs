@@ -9,6 +9,10 @@
  * which survives replacing the application folder — the whole point of asking
  * for progress that outlives an update.
  *
+ * `readKey`/`writeKey` are also exported directly (not just over IPC): the
+ * price-check hotkey has to be readable before any renderer exists, since the
+ * global shortcut is registered while the main window is still loading.
+ *
  * Writes go to a temporary file first and are renamed into place, so a crash
  * mid-write leaves the previous contents rather than a truncated file.
  */
@@ -18,7 +22,7 @@ const path = require('path');
 const { app, ipcMain } = require('electron');
 
 /** Only these keys can be read or written; the renderer picks the key. */
-const ALLOWED_KEYS = new Set(['progress']);
+const ALLOWED_KEYS = new Set(['progress', 'priceCheckHotkey']);
 const MAX_BYTES = 2 * 1024 * 1024;
 
 const storeDir = () => path.join(app.getPath('userData'), 'store');
@@ -59,4 +63,4 @@ function registerStoreIpc() {
   });
 }
 
-module.exports = { registerStoreIpc };
+module.exports = { registerStoreIpc, readKey, writeKey };

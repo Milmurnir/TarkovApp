@@ -4,14 +4,16 @@ const { app, BrowserWindow, Tray, Menu, shell } = require('electron');
 const path = require('path');
 const { startServer } = require('./server.cjs');
 const { getUiRoot, registerUpdateIpc } = require('./updater.cjs');
-const { registerStoreIpc } = require('./store.cjs');
+const { registerStoreIpc, readKey, writeKey } = require('./store.cjs');
 const {
-  createOverlayWindow, showOverlay, registerPriceCheckHotkey, unregisterPriceCheckHotkey,
+  DEFAULT_HOTKEY, createOverlayWindow, showOverlay, setHotkey, getHotkeyState,
+  registerHotkeyIpc, unregisterPriceCheckHotkey,
 } = require('./priceCheck.cjs');
 const { createTrayIcon } = require('./trayIcon.cjs');
 
 /** Chosen to be an unlikely collision; see startServer for why it is fixed. */
 const DEFAULT_PORT = 47821;
+const HOTKEY_STORE_KEY = 'priceCheckHotkey';
 
 let serverHandle = null;
 let mainWindow = null;
@@ -19,6 +21,11 @@ let overlayWindow = null;
 let tray = null;
 /** Set only by a real quit path, so a window's own close button can hide it instead. */
 let quitting = false;
+
+/** "Control+G" -> "Ctrl+G", the form the tray menu and Settings show. */
+function formatAccelerator(accelerator) {
+  return accelerator.replace(/\bControl\b/g, 'Ctrl').replace(/\bSuper\b/g, 'Win');
+}
 
 async function createWindow() {
   // Works both from source and from inside the packaged asar. A frontend
@@ -76,22 +83,49 @@ async function createWindow() {
   window.loadURL(url);
 
   overlayWindow = createOverlayWindow(url, () => quitting);
-  registerPriceCheckHotkey(() => overlayWindow);
+
+  // Whatever Settings last saved, falling back to the default on a first run
+  // or a corrupted store; a rejected custom binding is reported, not silently
+  // swapped for something the user did not choose.
+  const saved = readKey(HOTKEY_STORE_KEY);
+  const initial = typeof saved === 'string' && saved ? saved : DEFAULT_HOTKEY;
+  const initialResult = setHotkey(initial, () => overlayWindow);
+  if (initialResult.ok && initialResult.accelerator !== saved) writeKey(HOTKEY_STORE_KEY, initialResult.accelerator);
+
+  registerHotkeyIpc(() => overlayWindow, (accelerator) => {
+    writeKey(HOTKEY_STORE_KEY, accelerator);
+    refreshTray();
+  });
+
   tray = createTray();
 }
 
 function createTray() {
   const t = new Tray(createTrayIcon());
-  t.setToolTip('Tarkov Quest Router');
-  t.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Show Tarkov Quest Router', click: () => { mainWindow?.show(); mainWindow?.focus(); } },
-    { label: 'Price check (hold Ctrl, tap G twice)', click: () => showOverlay(overlayWindow) },
-    { type: 'separator' },
-    { label: 'Quit', click: () => { quitting = true; app.quit(); } },
-  ]));
+  updateTrayMenu(t);
   // The one-click default on Windows/Linux; macOS ignores it in favour of the menu.
   t.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
   return t;
+}
+
+/** Rebuilds the tray tooltip/menu so it reflects whatever hotkey is live right now. */
+function updateTrayMenu(t) {
+  const { accelerator, ok } = getHotkeyState();
+  const label = ok
+    ? `Price check (hold ${formatAccelerator(accelerator)}, tap twice)`
+    : 'Price check hotkey not active — see Settings';
+
+  t.setToolTip('Tarkov Quest Router');
+  t.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show Tarkov Quest Router', click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+    { label, click: () => showOverlay(overlayWindow) },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { quitting = true; app.quit(); } },
+  ]));
+}
+
+function refreshTray() {
+  if (tray) updateTrayMenu(tray);
 }
 
 registerUpdateIpc(() => mainWindow);

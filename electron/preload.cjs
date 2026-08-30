@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('appStore', {
  * The price-check overlay window's own bridge. `onShow` fires each time the
  * global hotkey (re)opens the reused window, so the renderer knows to reset
  * its query and refocus the input; `hide` is how Esc backs out of it.
+ * `getHotkey`/`setHotkey` back the Settings panel's hotkey control -- the main
+ * process is the source of truth for whether the binding is actually live.
  */
 contextBridge.exposeInMainWorld('priceCheck', {
   hide: () => ipcRenderer.send('pricecheck:hide'),
@@ -31,6 +33,8 @@ contextBridge.exposeInMainWorld('priceCheck', {
     ipcRenderer.on('pricecheck:show', handler);
     return () => ipcRenderer.removeListener('pricecheck:show', handler);
   },
+  getHotkey: () => ipcRenderer.invoke('pricecheck:get-hotkey'),
+  setHotkey: (accelerator) => ipcRenderer.invoke('pricecheck:set-hotkey', accelerator),
 });
 
 contextBridge.exposeInMainWorld('appUpdates', {
