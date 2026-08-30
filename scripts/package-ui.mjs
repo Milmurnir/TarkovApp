@@ -59,7 +59,9 @@ try {
   console.log(`  Shell version of this build: ${shellVersion}.`);
   console.log('  If this release changed anything under electron/, bump "shellVersion" in');
   console.log(`  package.json, rebuild the installer, and add "requires-shell: ${shellVersion + 1}"`);
-  console.log('  to the release notes so existing users are told to reinstall instead.');
+  console.log('  to the release notes so existing users are told to reinstall instead --');
+  console.log('  and also run `npm run release:app` and attach that zip too, or the');
+  console.log('  reinstall prompt has nothing to link to.');
   console.log('');
 } finally {
   fs.rmSync(check, { recursive: true, force: true });

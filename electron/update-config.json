@@ -2,5 +2,6 @@
   "//": "Where the app looks for updates. Set `repo` to your GitHub owner/name; until then the updater stays switched off.",
   "repo": "Milmurnir/TarkovApp",
   "asset": "ui.zip",
+  "appAsset": "TarkovQuestRouter-win32-x64.zip",
   "checkOnStartup": true
 }

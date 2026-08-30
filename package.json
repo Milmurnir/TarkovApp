@@ -9,7 +9,8 @@
     "build": "tsc && vite build",
     "electron": "npm run build && electron .",
     "release:ui": "npm run build && node scripts/package-ui.mjs",
-    "dist": "npm run build && electron-packager . TarkovQuestRouter --platform=win32 --arch=x64 --out=release --overwrite --asar --ignore=\"^/src$\" --ignore=\"^/src/\" --ignore=\"^/scripts\" --ignore=\"^/public\" --ignore=\"^/release\" --ignore=\"^/node_modules\" --ignore=\"^/\\.claude\" --ignore=\"^/tsconfig\" --ignore=\"^/vite\\.config\" --ignore=\"\\.md$\""
+    "dist": "npm run build && electron-packager . TarkovQuestRouter --platform=win32 --arch=x64 --out=release --overwrite --asar --ignore=\"^/src$\" --ignore=\"^/src/\" --ignore=\"^/scripts\" --ignore=\"^/public\" --ignore=\"^/release\" --ignore=\"^/node_modules\" --ignore=\"^/\\.claude\" --ignore=\"^/tsconfig\" --ignore=\"^/vite\\.config\" --ignore=\"\\.md$\"",
+    "release:app": "npm run dist && node scripts/package-app.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

@@ -162,9 +162,17 @@ export default function UpdateNotice() {
 
             <div className="modal-actions">
               {phase === 'offered' && result?.requiresReinstall && (
-                <button onClick={() => result.releaseUrl && bridge.openRelease(result.releaseUrl)}>
-                  Open download page
-                </button>
+                result.appAssetUrl ? (
+                  <button onClick={() => bridge.openRelease(result.appAssetUrl!)}>
+                    Download app{result.appAssetSize ? ` (${formatSize(result.appAssetSize)})` : ''}
+                  </button>
+                ) : (
+                  // Falls back to the release page itself if it was published
+                  // without the packaged app attached -- still points somewhere.
+                  <button onClick={() => result.releaseUrl && bridge.openRelease(result.releaseUrl)}>
+                    Open download page
+                  </button>
+                )
               )}
               {phase === 'offered' && !result?.requiresReinstall && (
                 <button className="primary" onClick={install}>Update now</button>

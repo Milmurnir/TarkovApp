@@ -176,6 +176,9 @@ async function checkForUpdate() {
 
   const version = String(release.tag_name || '').replace(/^[vV]/, '');
   const asset = (release.assets || []).find((a) => a.name === config.asset);
+  // The packaged app itself, when a release attaches one -- the only thing a
+  // "reinstall" prompt can actually point at, since ui.zip alone cannot help.
+  const appAsset = config.appAsset && (release.assets || []).find((a) => a.name === config.appAsset);
   const notes = cleanNotes(release.body);
   const needsShell = requiredShell(release.body);
   const current = currentUiVersion();
@@ -193,6 +196,8 @@ async function checkForUpdate() {
     notes,
     size: asset ? asset.size : 0,
     releaseUrl: release.html_url || `https://github.com/${config.repo}/releases/latest`,
+    appAssetUrl: appAsset ? appAsset.browser_download_url : null,
+    appAssetSize: appAsset ? appAsset.size : 0,
   };
 }
 

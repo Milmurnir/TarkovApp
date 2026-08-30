@@ -24,6 +24,9 @@ export interface UpdateCheck {
   notes?: string;
   size?: number;
   releaseUrl?: string;
+  /** The packaged app itself, when the release attached one -- what "reinstall" actually downloads. */
+  appAssetUrl?: string | null;
+  appAssetSize?: number;
   error?: string;
 }
 
