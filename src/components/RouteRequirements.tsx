@@ -58,14 +58,17 @@ export default function RouteRequirements({
   if (quests.length === 0) return null;
 
   const keys = merge(quests, (q) => q.keys.map((label) => ({ label })));
-  const items = merge(quests, (q) => q.itemsToBring.map((i) => ({ label: i.name, foundInRaid: i.foundInRaid })));
+  const allItems = merge(quests, (q) => q.itemsToBring.map((i) => ({ label: i.name, foundInRaid: i.foundInRaid })));
+  // Found-in-raid items aren't things to buy or pack — they only turn up mid-quest.
+  const items = allItems.filter((entry) => !entry.foundInRaid);
+  const foundInRaid = allItems.filter((entry) => entry.foundInRaid);
 
   const selectedTitles = new Set(quests.map((q) => q.title));
   const prerequisites = merge(quests, (q) => q.previous.map((label) => ({ label })))
     // A prerequisite you have already added to the run is not outstanding.
     .filter((entry) => !selectedTitles.has(entry.label));
 
-  const nothing = keys.length === 0 && items.length === 0 && prerequisites.length === 0;
+  const nothing = keys.length === 0 && items.length === 0 && foundInRaid.length === 0 && prerequisites.length === 0;
   const packed = [...keys, ...items].filter((entry) => checks[entry.label]?.packed).length;
   const total = keys.length + items.length;
 
@@ -90,6 +93,10 @@ export default function RouteRequirements({
           <Column
             title="Items to buy or bring" entries={items} quests={quests} onSelect={onSelect} colorOf={colorOf}
             empty="Nothing to bring in." checks={checks} onCheck={onCheck} me={me} shared={shared}
+          />
+          <Column
+            title="Found in raid" entries={foundInRaid} quests={quests} onSelect={onSelect} colorOf={colorOf}
+            empty="No raid-only quest items."
           />
           <Column
             title="Finish first" entries={prerequisites} quests={quests} onSelect={onSelect} colorOf={colorOf}
@@ -162,7 +169,6 @@ function Column({ title, entries, quests, onSelect, empty, colorOf, checks, onCh
 
                 <span className="check-label">
                   {entry.label}
-                  {entry.foundInRaid && <span className="tag">found in raid</span>}
                   {/* Only worth naming the quest when several are in the run. */}
                   {quests.length > 1 && (
                     <span className="req-for">

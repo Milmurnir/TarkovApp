@@ -25,9 +25,12 @@ export default function RequirementsPanel({ wiki, task }: Props) {
     .filter((o) => o.type === 'giveItem' || o.type === 'plantItem')
     .map((o) => ({ name: o.description, foundInRaid: Boolean(o.foundInRaid) }));
 
-  const items = apiItems.length > 0 ? apiItems : wiki.itemsToBring;
+  const allItems = apiItems.length > 0 ? apiItems : wiki.itemsToBring;
+  // Found-in-raid items aren't things to buy or pack — they only turn up mid-quest.
+  const items = allItems.filter((item) => !item.foundInRaid);
+  const foundInRaid = allItems.filter((item) => item.foundInRaid);
 
-  const nothingToPrepare = keys.length === 0 && items.length === 0 && wiki.previous.length === 0;
+  const nothingToPrepare = keys.length === 0 && allItems.length === 0 && wiki.previous.length === 0;
 
   return (
     <div className="panel">
@@ -54,14 +57,14 @@ export default function RequirementsPanel({ wiki, task }: Props) {
       {items.length > 0 && (
         <section className="section">
           <h3>Items to buy or bring</h3>
-          <ul>
-            {items.map((item) => (
-              <li key={item.name}>
-                {item.name}
-                {item.foundInRaid && <span className="tag">found in raid</span>}
-              </li>
-            ))}
-          </ul>
+          <ul>{items.map((item) => <li key={item.name}>{item.name}</li>)}</ul>
+        </section>
+      )}
+
+      {foundInRaid.length > 0 && (
+        <section className="section">
+          <h3>Found in raid</h3>
+          <ul>{foundInRaid.map((item) => <li key={item.name}>{item.name}</li>)}</ul>
         </section>
       )}
 

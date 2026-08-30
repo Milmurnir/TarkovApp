@@ -2,7 +2,7 @@ import type { WikiQuest } from './types';
 
 const WIKI = '/api/wiki';
 const LIST_CACHE_KEY = 'eft-quest-list-v1';
-const PAGE_CACHE_PREFIX = 'eft-quest-page-v4:';
+const PAGE_CACHE_PREFIX = 'eft-quest-page-v5:';
 
 /** Strip wiki markup down to readable plain text. */
 export function cleanWikitext(input: string): string {
@@ -103,7 +103,7 @@ function linkTargets(wikitext: string): string[] {
 function isGear(target: string): boolean {
   const lower = target.toLowerCase();
   if (TRADERS.has(lower) || MAPS.has(lower)) return false;
-  if (/^(EXP|Roubles|Euros|Dollars|Scavs?|PMCs?|Quests?)$/i.test(target)) return false;
+  if (/^(EXP|Roubles|Euros|Dollars|Scavs?|PMCs?|Quests?|Found in raid)$/i.test(target)) return false;
   return true;
 }
 
@@ -116,6 +116,49 @@ function extractKeys(wikitext: string): string[] {
   const scoped = [sectionRaw(wikitext, 'Objectives'), sectionRaw(wikitext, 'Guide')].join('\n');
   const keys = linkTargets(scoped).filter((target) => /\bkey(card|s)?\b/i.test(target));
   return Array.from(new Set(keys));
+}
+
+/** Strip the wiki markup a table cell tends to carry, down to its bare text. */
+function plainCell(cell: string): string {
+  return cell
+    .replace(/<font[^>]*>/gi, '')
+    .replace(/<\/font>/gi, '')
+    .replace(/'''''|'''|''/g, '')
+    .trim();
+}
+
+/**
+ * The "Related Quest Items" table (usually in the Guide section) carries the
+ * wiki's own Find in raid column — the authoritative source, since a handover
+ * objective's wording rarely says so itself (see Lab journal on One Less Loose End).
+ */
+function extractFoundInRaidTable(wikitext: string): Map<string, boolean> {
+  const flags = new Map<string, boolean>();
+  const marker = wikitext.indexOf('Related Quest Items');
+  if (marker === -1) return flags;
+
+  const tableEnd = wikitext.indexOf('\n|}', marker);
+  const table = tableEnd === -1 ? wikitext.slice(marker) : wikitext.slice(marker, tableEnd);
+  // Row 0 is the text before the first `|-`, row 1 is the column-header row.
+  const dataRows = table.split(/\n\|-/).slice(2);
+
+  for (const row of dataRows) {
+    const rawCells = row
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^[|!]/.test(line))
+      .map((line) => line.slice(1));
+    if (rawCells.length < 2) continue;
+
+    // Column order is Icon, Item name, Amount, Requirement, Find in raid, Notes —
+    // only the item-name cell should ever be read as naming an item.
+    const foundInRaid = rawCells.some((cell) => /^yes$/i.test(plainCell(cell)));
+    for (const target of linkTargets(rawCells[1]).filter(isGear)) {
+      flags.set(target, (flags.get(target) ?? false) || foundInRaid);
+    }
+  }
+
+  return flags;
 }
 
 /** Items to bring in or hand over, read from the objective lines that need them. */
@@ -132,6 +175,11 @@ function extractItems(wikitext: string): { name: string; foundInRaid: boolean }[
       if (!isGear(target)) continue;
       found.set(target, (found.get(target) ?? false) || foundInRaid);
     }
+  }
+
+  const table = extractFoundInRaidTable(wikitext);
+  for (const [name, foundInRaid] of table) {
+    if (found.has(name) && foundInRaid) found.set(name, true);
   }
 
   return Array.from(found, ([name, foundInRaid]) => ({ name, foundInRaid }));

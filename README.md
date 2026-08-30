@@ -181,7 +181,8 @@ comes from `action=parse&prop=text` and is then cleaned up:
 Pre-raid prep only:
 
 - **Keys to bring** — read off the wiki page.
-- **Items to buy or bring** — with a "found in raid" tag where required.
+- **Items to buy or bring** — gear you need to buy or pack before the raid.
+- **Found in raid** — quest items you only pick up mid-raid, not something to buy or bring.
 - **Finish first** — prerequisite quests.
 
 Rewards, dialogue and flavour text are deliberately omitted.
