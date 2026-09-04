@@ -1,7 +1,7 @@
 {
   "name": "tarkov-quest-tracker",
   "private": true,
-  "version": "0.9.2",
+  "version": "0.9.3",
   "shellVersion": 4,
   "type": "module",
   "scripts": {
