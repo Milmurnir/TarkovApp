@@ -39,7 +39,7 @@ import {
   isPlainPmcExtract, spawnZones,
   type MapData, type MapExtractInfo, type MapIndexEntry, type MapSpawnPoint,
 } from './lib/mapData';
-import type { Task, Vec3, WikiQuest } from './lib/types';
+import type { MapExtract, Task, Vec3, WikiQuest } from './lib/types';
 import { questAccent } from './lib/questColor';
 
 const DEFAULT_MAP = 'streets-of-tarkov';
@@ -618,10 +618,25 @@ export default function App() {
     return buildLootRun(lootSpots, looseLoot.locks, routeStart, lootLimit, allItemNames, lootBalance);
   }, [mode, lootSpots, looseLoot, routeStart, lootLimit, allItemNames, lootBalance]);
 
+  /**
+   * A pending multi-map quest's exit is the transit to its next leg, not
+   * whichever plain extract happens to be nearest -- that transit is not in
+   * `routableExtracts` at all, since transits and extracts are separate data.
+   */
+  const transitExtract: MapExtract | null = useMemo(() => {
+    for (const { remaining } of multiMapPending) {
+      const transit = transits.find((t) => t.toMap === remaining[0]);
+      if (transit) {
+        return { id: `transit-${remaining[0]}`, name: transit.label, faction: null, position: transit.position, switches: null };
+      }
+    }
+    return null;
+  }, [multiMapPending, transits]);
+
   const route = useMemo(() => {
     if (tasks.length === 0 || !api || !routeStart) return null;
-    return buildRoute(tasks, routeStart, routableExtracts, mapName);
-  }, [tasks, api, routeStart, routableExtracts, mapName]);
+    return buildRoute(tasks, routeStart, routableExtracts, mapName, transitExtract);
+  }, [tasks, api, routeStart, routableExtracts, mapName, transitExtract]);
 
   /** With no coordinates for objectives, at least mark where you spawn. */
   const fallbackStops = useMemo(() => {

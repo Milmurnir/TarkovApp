@@ -115,6 +115,8 @@ export function buildRoute(
   spawn: { position: Vec3; zoneName: string | null },
   extracts: MapExtract[],
   mapName: string,
+  /** A multi-map quest's transit to its next leg, when one is pending on this map. */
+  preferredExtract?: MapExtract | null,
 ): Route {
   const { candidates, unmapped } = collectCandidates(tasks, mapName);
 
@@ -163,8 +165,15 @@ export function buildRoute(
 
   let chosen: MapExtract | null = null;
   let required = false;
+  let transit = false;
 
-  if (requiredExitNames.length > 0) {
+  // A pending transit outranks everything else: it is not optional, and the
+  // nearest-extract fallback has no idea it needs to exist at all -- transits
+  // live in a separate list from ordinary extracts.
+  if (preferredExtract && preferredExtract.position) {
+    chosen = preferredExtract;
+    transit = true;
+  } else if (requiredExitNames.length > 0) {
     chosen = usableExtracts.find((e) => e.name && requiredExitNames.includes(e.name.toLowerCase())) ?? null;
     required = chosen !== null;
   }
@@ -200,9 +209,11 @@ export function buildRoute(
     stops.push({
       order: stops.length,
       label: chosen.name ?? 'Extract',
-      description: required
-        ? `Required extract for this quest${chosen.faction ? ` (${chosen.faction})` : ''}`
-        : `Nearest extract${chosen.faction ? ` (${chosen.faction})` : ''}`,
+      description: transit
+        ? 'Continue this quest here'
+        : required
+          ? `Required extract for this quest${chosen.faction ? ` (${chosen.faction})` : ''}`
+          : `Nearest extract${chosen.faction ? ` (${chosen.faction})` : ''}`,
       position: chosen.position as Vec3,
       kind: 'extract',
       legDistance: legToExtract,
