@@ -8,11 +8,16 @@
  * which carries the identical fields the GraphQL schema does: `lastLowPrice`,
  * `low24hPrice`, `avg24hPrice`, `types` (checked for `noFlea`), `sellToTrader`.
  *
- * `lastLowPrice` -- the lowest offer at the most recent market scan -- is what
- * is shown as *the* price: it is the closest thing to "what would I see on
- * the flea right now". `low24hPrice` and `avg24hPrice` are the fallbacks when
- * a thinly-traded item has no current scan, in that order, and the UI always
- * says which one it ended up showing.
+ * `avg24hPrice` is shown as *the* price. `lastLowPrice` looked like the better
+ * choice on paper -- the lowest offer at the most recent scan -- but that scan
+ * is json.tarkov.dev's own, not this app's, and most items sit well over an
+ * hour stale (some items over a day) regardless of how often the overlay
+ * refetches. An average that has actually seen the last day of trading is
+ * less likely to visibly disagree with what the flea shows mid-raid than a
+ * single scan that might be from hours ago. `lastLowPrice` then `low24hPrice`
+ * are the fallbacks when an item has too little volume for an average, and
+ * the UI always shows which one it ended up using next to the number, not
+ * just on hover -- a label nobody notices is as good as no label.
  */
 
 const BASE = '/api/json';
@@ -174,11 +179,15 @@ export async function loadFleaItems(): Promise<FleaItem[]> {
   }
 }
 
-/** The number to headline, and which field backs it -- always shown together. */
-export function lowestPrice(item: FleaItem): { value: number; label: string } | null {
+/**
+ * The number to headline, and which field backs it -- always shown together.
+ * Not necessarily *the* lowest price anywhere (a 24h average rarely is); the
+ * name says what it is for, not what the number technically represents.
+ */
+export function headlinePrice(item: FleaItem): { value: number; label: string } | null {
+  if (item.avg24h !== null) return { value: item.avg24h, label: '24h avg' };
   if (item.lastLow !== null) return { value: item.lastLow, label: 'last scan' };
   if (item.low24h !== null) return { value: item.low24h, label: '24h low' };
-  if (item.avg24h !== null) return { value: item.avg24h, label: '24h avg' };
   return null;
 }
 

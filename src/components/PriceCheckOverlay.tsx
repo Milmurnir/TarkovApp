@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  formatRUB, loadFleaItems, lowestPrice, onFleaItemsUpdated, searchFleaItems, type FleaItem,
+  formatRUB, headlinePrice, loadFleaItems, onFleaItemsUpdated, searchFleaItems, type FleaItem,
 } from '../lib/priceCheck';
 import { priceCheckBridge } from '../lib/priceCheckBridge';
 
@@ -79,21 +79,23 @@ export default function PriceCheckOverlay() {
       {suggestions.length > 0 && (
         <ul className="suggestions overlay-suggestions">
           {suggestions.map((item, i) => {
-            const lowest = lowestPrice(item);
+            const headline = headlinePrice(item);
             const slots = item.width * item.height;
-            const details = lowest
+            // Whichever of the other numbers is not already the headline, so
+            // the tooltip never just repeats what the row already says.
+            const extras = headline
               ? [
-                  lowest.label,
-                  item.avg24h !== null ? `24h avg ${formatRUB(item.avg24h)}` : null,
-                  slots > 1 ? `${formatRUB(lowest.value / slots)} per slot` : null,
+                  headline.label !== '24h avg' && item.avg24h !== null ? `24h avg ${formatRUB(item.avg24h)}` : null,
+                  headline.label !== 'last scan' && item.lastLow !== null ? `last scan ${formatRUB(item.lastLow)}` : null,
+                  slots > 1 ? `${formatRUB(headline.value / slots)} per slot` : null,
                 ].filter(Boolean).join(' · ')
               : item.bestTraderRUB !== null
-                ? `Not sellable on the Flea Market · up to ${formatRUB(item.bestTraderRUB)} to a trader`
-                : 'Not sellable on the Flea Market';
+                ? `up to ${formatRUB(item.bestTraderRUB)} to a trader`
+                : undefined;
 
             return (
               <li key={item.id} className={i === highlighted ? 'active' : undefined}>
-                <button title={details} onMouseEnter={() => setHighlighted(i)}>
+                <button title={extras} onMouseEnter={() => setHighlighted(i)}>
                   {item.icon && (
                     <img
                       src={item.icon}
@@ -108,7 +110,14 @@ export default function PriceCheckOverlay() {
                     {item.short !== item.name && <span className="muted small"> ({item.short})</span>}
                   </span>
                   <span className="suggestion-price">
-                    {lowest ? formatRUB(lowest.value) : <span className="muted">no flea</span>}
+                    {headline ? (
+                      <>
+                        {formatRUB(headline.value)}
+                        <span className="muted"> {headline.label}</span>
+                      </>
+                    ) : (
+                      <span className="muted">not on flea</span>
+                    )}
                   </span>
                 </button>
               </li>

@@ -178,9 +178,10 @@ Hold **Ctrl** and tap **G** twice in quick succession (within 450ms) — the
 default combo, changeable in Settings — from anywhere — the game, another
 app, or with the main window minimized to tray — and a small always-on-top
 popup appears with the search box already focused. Type an item name, and
-every match shows its icon, current lowest flea price, and (on hover) its
-24h average and per-slot price, live as you type. Esc, or clicking anywhere
-outside the popup, hides it again; the app keeps running in the tray.
+every match shows its icon and price inline — labelled with which number it
+is — with the other figures and per-slot price on hover, live as you type.
+Esc, or clicking anywhere outside the popup, hides it again; the app keeps
+running in the tray.
 
 A few implementation notes:
 
@@ -200,11 +201,16 @@ A few implementation notes:
   catalogue is cached for two minutes; opening the overlay past that always
   kicks a background refresh (never blocking the search box), and a price
   that changes while the popup is already open updates in place.
-- **`lastLowPrice` is *the* number.** It is the lowest offer at the most
-  recent market scan — the closest thing to "what would I see on the flea
-  right now". `low24hPrice` then `avg24hPrice` are fallbacks for a
-  thinly-traded item with no current scan, and the tooltip on each row always
-  says which one it landed on.
+- **`avg24hPrice` is *the* number, not `lastLowPrice`.** The lowest offer at
+  the most recent scan looked like the obvious choice, but that scan is
+  json.tarkov.dev's own — checking the raw data directly showed most items
+  sitting over an hour stale regardless of how often the overlay refetches,
+  and some over a day. A 24h average is far less likely to visibly disagree
+  with the live flea window than a single scan that might be old. `lastLowPrice`
+  then `low24hPrice` are the fallbacks for a thinly-traded item with no
+  average, and which field is on screen is labelled right next to the price
+  in the row itself — not just on hover, since a label nobody notices is as
+  good as no label.
 - **Items the game won't let you sell** (roubles, physical bitcoin, ...) are
   flagged via the `noFlea` item type and show the best trader payout instead.
 - **A hotkey conflict is surfaced, not silent.** `globalShortcut.register`
