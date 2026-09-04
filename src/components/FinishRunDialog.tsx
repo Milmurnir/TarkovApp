@@ -9,6 +9,12 @@ interface Props {
   requires: Record<string, string[]>;
   /** In a shared run the quest list is not cleared; it is not yours alone. */
   shared: boolean;
+  /**
+   * Quest title -> the map(s) (display names) its transit still needs before
+   * it counts as reached. A quest listed here cannot be ticked done without
+   * the override below -- the app has not actually seen it on those maps.
+   */
+  multiMapRemaining?: Record<string, string[]>;
   onSubmit: (ids: string[]) => void;
   onClose: () => void;
 }
@@ -20,10 +26,12 @@ interface Props {
  * assumed here would be a guess written into your account.
  */
 export default function FinishRunDialog({
-  entries, progress, requires, shared, onSubmit, onClose,
+  entries, progress, requires, shared, multiMapRemaining, onSubmit, onClose,
 }: Props) {
   const [done, setDone] = useState<Record<string, boolean>>({});
   const [backfill, setBackfill] = useState<Record<string, boolean>>({});
+  /** Unlocks a multi-map quest's checkbox despite the app not having seen every leg. */
+  const [override, setOverride] = useState<Record<string, boolean>>({});
 
   /** Prerequisites still outstanding for each quest, computed once. */
   const missingByTitle = useMemo(() => {
@@ -35,7 +43,15 @@ export default function FinishRunDialog({
     return map;
   }, [entries, requires, progress]);
 
-  const ticked = entries.filter((entry) => done[entry.title] && entry.taskId);
+  /** True while a multi-map quest's other leg(s) haven't been reached and the override isn't on. */
+  function locked(title: string): boolean {
+    const remaining = multiMapRemaining?.[title] ?? [];
+    return remaining.length > 0 && !override[title];
+  }
+
+  // Re-locking after a tick (unchecking the override) must drop it from what
+  // gets submitted, not just from how the checkbox renders.
+  const ticked = entries.filter((entry) => done[entry.title] && entry.taskId && !locked(entry.title));
   const extra = ticked.reduce(
     (total, entry) => total + (backfill[entry.title] ? (missingByTitle.get(entry.title)?.length ?? 0) : 0),
     0,
@@ -67,23 +83,43 @@ export default function FinishRunDialog({
           {entries.map((entry) => {
             const missing = missingByTitle.get(entry.title) ?? [];
             const known = Boolean(entry.taskId);
+            const remaining = multiMapRemaining?.[entry.title] ?? [];
+            const entryLocked = locked(entry.title);
             return (
               <li key={entry.title}>
                 <label className="finish-row">
                   <input
                     type="checkbox"
-                    disabled={!known}
-                    checked={Boolean(done[entry.title])}
+                    disabled={!known || entryLocked}
+                    checked={Boolean(done[entry.title]) && !entryLocked}
                     onChange={(event) =>
                       setDone((current) => ({ ...current, [entry.title]: event.target.checked }))}
                   />
                   <span>{entry.title}</span>
                   {!known && <span className="tag">unknown quest, cannot track</span>}
+                  {known && remaining.length > 0 && (
+                    <span className="tag">{remaining.join(', ')} still needed</span>
+                  )}
                 </label>
+
+                {/* The transit's other leg(s) never showed up in this run, so
+                    finishing needs an explicit say-so rather than a tick that
+                    looks the same as any other. */}
+                {known && remaining.length > 0 && (
+                  <label className="finish-backfill">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(override[entry.title])}
+                      onChange={(event) =>
+                        setOverride((current) => ({ ...current, [entry.title]: event.target.checked }))}
+                    />
+                    <span className="muted small">I finished it anyway (the app did not see every map)</span>
+                  </label>
+                )}
 
                 {/* Counting a late quest as done while its chain is not is a
                     state the game cannot produce, so offer to fix it here. */}
-                {done[entry.title] && missing.length > 0 && (
+                {done[entry.title] && !entryLocked && missing.length > 0 && (
                   <label className="finish-backfill">
                     <input
                       type="checkbox"

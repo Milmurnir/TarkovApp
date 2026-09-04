@@ -277,6 +277,30 @@ Objectives with no published coordinates are listed under "Not on the map"
 rather than silently dropped. Distances are straight-line, ignoring walls and
 elevation — the *ordering* is the useful output, not the metre count.
 
+## Multi-map (transit) quests
+
+Some quests need a transit partway through — Secrets of Polikhim goes
+Customs then Factory, Chumming goes Customs then Woods. Adding one of these
+prompts *"This quest also needs {map}. Include it in this run?"*; confirming
+tracks the quest's full map span and shows a **Continue to {map}** banner
+once you're ready to make the transit in-game.
+
+Two maps have unrelated coordinate systems, so there's no drawing one
+continuous route across both — clicking Continue switches the app to the next
+map's own route for the same quest, picking up exactly where the existing
+per-map routing already works, with your other selected quests and wiki data
+carried over untouched.
+
+**Finish run only ever offers a multi-map quest once every leg has actually
+been reached in the app** — not just the first. A quest still waiting on a
+map shows a "still needed" tag and a disabled checkbox in the Finish dialog;
+an "I finished it anyway" override is there for the case where you finish it
+without ever clicking Continue mid-raid, but nothing is assumed done by
+default. `src/lib/multiMap.ts` has the detection: only objectives genuinely
+tied to exactly one map count, so an "Eliminate Scavs on any location"
+bounty-style objective (which lists a dozen maps with no actual coordinates)
+never gets mistaken for a transit requirement.
+
 ## Quest progress
 
 Kept on this machine, by tarkov.dev task id. Finished quests drop out of the
@@ -398,5 +422,7 @@ src/lib/tarkov.ts              GraphQL client, per-map caching, offline fallback
 src/lib/mapData.ts             generated per-map spawns, extracts, labels
 src/lib/mapgeo.ts              projection, forward and inverse
 src/lib/route.ts               nearest-neighbour + 2-opt routing
+src/lib/multiMap.ts            detects a quest's genuine map span, for transit quests
+src/components/MultiMapPrompt.tsx  "this quest also needs {map}" confirm dialog
 src/components/                map view, requirements, route list, current objective
 ```

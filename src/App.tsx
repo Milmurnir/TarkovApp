@@ -20,6 +20,8 @@ import FinishRunDialog from './components/FinishRunDialog';
 import SettingsPanel from './components/SettingsPanel';
 import { loadSettings, saveSettings, type Settings } from './lib/settings';
 import { loadFleaItems } from './lib/priceCheck';
+import { questMapSpan } from './lib/multiMap';
+import MultiMapPrompt from './components/MultiMapPrompt';
 import {
   emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, saveProgress,
   standingById, withCompleted, type Progress, type ProgressExport,
@@ -95,6 +97,20 @@ export default function App() {
   const [finishSession, setFinishSession] = useState(0);
   /** The last automatic back-fill, kept so it can be undone. */
   const [lastBackfill, setLastBackfill] = useState<{ title: string; ids: string[] } | null>(null);
+
+  /**
+   * Per multi-map (transit) quest: its full map span and which of those maps
+   * this app has actually had it selected on. `visited` only ever grows when
+   * the quest is selected while `mapName` matches one of its own maps -- see
+   * the effect below -- so a later leg can never be assumed reached just
+   * because an earlier one was. Local only, not coop-mirrored, same as
+   * progress/finish tracking (`finishRun` below).
+   */
+  const [multiMapQuests, setMultiMapQuests] = useState<Record<string, { maps: string[]; visited: string[] }>>({});
+  /** Quests just added that span maps, waiting on the player to say whether to include the rest. */
+  const [pendingMultiMap, setPendingMultiMap] = useState<{ title: string; maps: string[] }[]>([]);
+  /** Asked about once already, so declining does not immediately re-prompt. */
+  const [dismissedMultiMap, setDismissedMultiMap] = useState<Set<string>>(new Set());
 
   /** Every progress change is written through, so a crash loses nothing. */
   function updateProgress(next: Progress) {
@@ -179,6 +195,24 @@ export default function App() {
       });
   }
 
+  // Credits this map toward every tracked multi-map quest still selected here.
+  // The only place `visited` grows, so a leg is never counted reached just
+  // because an earlier one was -- see the `multiMapQuests` declaration.
+  useEffect(() => {
+    setMultiMapQuests((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const title of selectedQuests) {
+        const entry = next[title];
+        if (entry && entry.maps.includes(mapName) && !entry.visited.includes(mapName)) {
+          next[title] = { ...entry, visited: [...entry.visited, mapName] };
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [mapName, selectedQuests]);
+
   const currentMap = maps.find((m) => m.normalizedName === mapName) ?? null;
   const wikiMapName = currentMap?.wikiName ?? mapData?.wikiName ?? '';
   /** Used to spot which map an objective's text is talking about. */
@@ -230,6 +264,7 @@ export default function App() {
     setActiveWiki(title);
     setSelectedQuests((current) => (current.includes(title) ? current : [...current, title]));
     backfillFor(title);
+    checkMultiMap(title);
 
     if (wikiByTitle[title]) return;
     setLoadingQuest(true);
@@ -251,6 +286,7 @@ export default function App() {
       setSelectedQuests([]);
       setActiveWiki(null);
       setSelectedOrder(null);
+      setMultiMapQuests({});
     }
   }
 
@@ -270,6 +306,47 @@ export default function App() {
 
     updateProgress(withCompleted(progress, missing, true));
     setLastBackfill({ title, ids: missing });
+  }
+
+  /**
+   * Queues the "this quest also needs {map}" prompt when a freshly-picked
+   * quest's objectives are genuinely tied to more than one map. Looked up
+   * fresh from `api.tasks` rather than the `tasks` memo, which still reflects
+   * `selectedQuests` from before this pick.
+   */
+  function checkMultiMap(title: string) {
+    if (!api || multiMapQuests[title] || dismissedMultiMap.has(title)) return;
+    const target = normalize(title);
+    const task = api.tasks.find((t) => normalize(t.normalizedName) === target);
+    if (!task) return;
+
+    const knownMaps = new Set(maps.map((m) => m.normalizedName));
+    const span = questMapSpan(task, knownMaps);
+    if (span.length <= 1) return;
+
+    setPendingMultiMap((current) => (current.some((p) => p.title === title) ? current : [...current, { title, maps: span }]));
+  }
+
+  /** Applies the player's yes/no answers from the multi-map prompt. */
+  function resolveMultiMap(confirmedTitles: string[]) {
+    setMultiMapQuests((current) => {
+      const next = { ...current };
+      for (const { title, maps: span } of pendingMultiMap) {
+        if (confirmedTitles.includes(title)) {
+          // Credit the map this was just confirmed on immediately -- the
+          // accumulation effect only reacts to a later `mapName` change, and
+          // this one has already happened by the time the prompt is answered.
+          next[title] = { maps: span, visited: span.includes(mapName) ? [mapName] : [] };
+        }
+      }
+      return next;
+    });
+    setDismissedMultiMap((current) => {
+      const next = new Set(current);
+      for (const { title } of pendingMultiMap) next.add(title);
+      return next;
+    });
+    setPendingMultiMap([]);
   }
 
   /**
@@ -301,6 +378,11 @@ export default function App() {
     setSelectedQuests((current) => current.filter((t) => t !== title));
     setActiveWiki((current) => (current === title ? null : current));
     setSelectedOrder(null);
+    setMultiMapQuests((current) => {
+      if (!(title in current)) return current;
+      const { [title]: _removed, ...rest } = current;
+      return rest;
+    });
   }
 
   const tasks: Task[] = useMemo(() => {
@@ -346,6 +428,21 @@ export default function App() {
     return selectedQuests.filter((title) =>
       !api.tasks.some((t) => normalize(t.normalizedName) === normalize(title)));
   }, [selectedQuests, api]);
+
+  /** Selected quests still waiting on at least one more map, in wiki-friendly names. */
+  const multiMapPending = useMemo(() => selectedQuests
+    .map((title) => {
+      const entry = multiMapQuests[title];
+      if (!entry) return null;
+      const remaining = entry.maps.filter((m) => !entry.visited.includes(m));
+      return remaining.length > 0 ? { title, remaining } : null;
+    })
+    .filter((entry): entry is { title: string; remaining: string[] } => entry !== null),
+  [selectedQuests, multiMapQuests]);
+
+  function mapDisplayName(normalizedName: string): string {
+    return maps.find((m) => m.normalizedName === normalizedName)?.wikiName ?? normalizedName;
+  }
 
   const apiSpawns = useMemo(() => api?.spawns ?? [], [api]);
 
@@ -427,6 +524,7 @@ export default function App() {
       return {
         position: transit.position,
         label: destination ? `Transit to ${destination}` : (transit.description ?? 'Transit'),
+        toMap: transit.toMap,
       };
     });
   }, [api, maps]);
@@ -922,6 +1020,22 @@ export default function App() {
           />
           )}
 
+          {mode === 'quests' && multiMapPending.map(({ title, remaining }) => {
+            const nextMap = remaining[0];
+            const transit = transits.find((t) => t.toMap === nextMap);
+            return (
+              <div key={title} className="panel warn">
+                <p className="small">
+                  <strong>{title}</strong> also needs {remaining.map(mapDisplayName).join(', ')}.
+                  {transit && ` Use the transit to ${mapDisplayName(nextMap)} to get there.`}
+                </p>
+                <button onClick={() => setMapName(nextMap)}>
+                  Continue to {mapDisplayName(nextMap)}
+                </button>
+              </div>
+            );
+          })}
+
           {mode === 'quests' && route && <RouteList route={route} />}
 
           {mode === 'quests' && selectedQuests.length > 0 && (
@@ -965,8 +1079,22 @@ export default function App() {
           progress={progress}
           requires={taskIndex.requires}
           shared={Boolean(coop.code)}
+          multiMapRemaining={Object.fromEntries(
+            multiMapPending.map(({ title, remaining }) => [title, remaining.map(mapDisplayName)]),
+          )}
           onSubmit={finishRun}
           onClose={() => setFinishOpen(false)}
+        />
+      )}
+
+      {pendingMultiMap.length > 0 && (
+        <MultiMapPrompt
+          entries={pendingMultiMap.map(({ title, maps: span }) => ({
+            title,
+            maps: span.filter((m) => m !== mapName),
+          }))}
+          mapDisplayName={mapDisplayName}
+          onSubmit={resolveMultiMap}
         />
       )}
     </div>
