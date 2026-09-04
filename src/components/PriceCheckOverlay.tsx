@@ -84,13 +84,13 @@ export default function PriceCheckOverlay() {
             // Whichever of the other numbers is not already the headline, so
             // the tooltip never just repeats what the row already says.
             const extras = headline
-              ? [
+              ? ([
                   headline.label !== '24h avg' && item.avg24h !== null ? `24h avg ${formatRUB(item.avg24h)}` : null,
                   headline.label !== 'last scan' && item.lastLow !== null ? `last scan ${formatRUB(item.lastLow)}` : null,
                   slots > 1 ? `${formatRUB(headline.value / slots)} per slot` : null,
-                ].filter(Boolean).join(' · ')
+                ].filter(Boolean).join(' · ') || undefined)
               : item.bestTraderRUB !== null
-                ? `up to ${formatRUB(item.bestTraderRUB)} to a trader`
+                ? 'Not sellable on the Flea Market'
                 : undefined;
 
             return (
@@ -115,8 +115,15 @@ export default function PriceCheckOverlay() {
                         {formatRUB(headline.value)}
                         <span className="muted"> {headline.label}</span>
                       </>
+                    ) : item.bestTraderRUB !== null ? (
+                      // Not flea-sellable at all (roubles, physical bitcoin, ...):
+                      // the trader payout is the only real number left to show.
+                      <>
+                        {formatRUB(item.bestTraderRUB)}
+                        <span className="muted"> trader</span>
+                      </>
                     ) : (
-                      <span className="muted">not on flea</span>
+                      <span className="muted">no price data</span>
                     )}
                   </span>
                 </button>
