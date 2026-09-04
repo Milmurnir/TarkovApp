@@ -19,7 +19,7 @@ export default function SettingsPanel({ settings, onChange }: Props) {
         <label className="density-row">
           <input
             type="range"
-            min={0.5}
+            min={0.2}
             max={3}
             step={0.1}
             value={settings.routeIconScale}
