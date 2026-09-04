@@ -111,6 +111,21 @@ export default function App() {
   const [pendingMultiMap, setPendingMultiMap] = useState<{ title: string; maps: string[] }[]>([]);
   /** Asked about once already, so declining does not immediately re-prompt. */
   const [dismissedMultiMap, setDismissedMultiMap] = useState<Set<string>>(new Set());
+  /**
+   * The maps this run now spans, in the order they were introduced -- empty
+   * means ordinary single-map mode. Grows only when a multi-map quest is
+   * confirmed (see `resolveMultiMap`), never shrinks on its own: switching to
+   * a map already in here is "flip to that page", switching to anything else
+   * is "start over" (see the map `<select>`'s onChange).
+   */
+  const [pages, setPages] = useState<string[]>([]);
+  /**
+   * Which page a quest was added under -- the map you were looking at when
+   * you picked it. Decides which page's sidebar list shows it; a quest with
+   * no published coordinates at all still belongs to whichever page you
+   * added it from, so it must not simply vanish because it can't be routed.
+   */
+  const [addedOnPage, setAddedOnPage] = useState<Record<string, string>>({});
 
   /** Every progress change is written through, so a crash loses nothing. */
   function updateProgress(next: Progress) {
@@ -263,6 +278,7 @@ export default function App() {
     setSelectedOrder(null);
     setActiveWiki(title);
     setSelectedQuests((current) => (current.includes(title) ? current : [...current, title]));
+    setAddedOnPage((current) => (title in current ? current : { ...current, [title]: mapName }));
     backfillFor(title);
     checkMultiMap(title);
 
@@ -287,6 +303,8 @@ export default function App() {
       setActiveWiki(null);
       setSelectedOrder(null);
       setMultiMapQuests({});
+      setPages([]);
+      setAddedOnPage({});
     }
   }
 
@@ -346,6 +364,20 @@ export default function App() {
       for (const { title } of pendingMultiMap) next.add(title);
       return next;
     });
+
+    // Every confirmed quest's maps become pages in this run -- the current
+    // map first, if this is the first one, so it reads as "page one".
+    const confirmedSpans = pendingMultiMap.filter((p) => confirmedTitles.includes(p.title)).map((p) => p.maps);
+    if (confirmedSpans.length > 0) {
+      setPages((current) => {
+        const next = current.length > 0 ? [...current] : [mapName];
+        for (const span of confirmedSpans) {
+          for (const m of span) if (!next.includes(m)) next.push(m);
+        }
+        return next;
+      });
+    }
+
     setPendingMultiMap([]);
   }
 
@@ -379,6 +411,11 @@ export default function App() {
     setActiveWiki((current) => (current === title ? null : current));
     setSelectedOrder(null);
     setMultiMapQuests((current) => {
+      if (!(title in current)) return current;
+      const { [title]: _removed, ...rest } = current;
+      return rest;
+    });
+    setAddedOnPage((current) => {
       if (!(title in current)) return current;
       const { [title]: _removed, ...rest } = current;
       return rest;
@@ -440,8 +477,44 @@ export default function App() {
     .filter((entry): entry is { title: string; remaining: string[] } => entry !== null),
   [selectedQuests, multiMapQuests]);
 
+  /**
+   * With more than one page in this run, the sidebar list only shows quests
+   * that belong to the active page: a tracked multi-map quest shows on every
+   * map it spans, anything else only on the page it was added from. Checking
+   * routability instead would hide a legitimately-added quest the moment it
+   * turned out to have no published coordinates anywhere, which is a
+   * different problem from which page it belongs on. In ordinary single-page
+   * runs (the common case) nothing is hidden, matching today.
+   */
+  const visibleSelectedQuests = useMemo(() => (
+    pages.length > 1
+      ? selectedQuests.filter((title) => {
+          const multi = multiMapQuests[title];
+          return multi ? multi.maps.includes(mapName) : addedOnPage[title] === mapName;
+        })
+      : selectedQuests
+  ), [pages, selectedQuests, multiMapQuests, addedOnPage, mapName]);
+
   function mapDisplayName(normalizedName: string): string {
     return maps.find((m) => m.normalizedName === normalizedName)?.wikiName ?? normalizedName;
+  }
+
+  /**
+   * Switching to a map already tracked as a page in this run (via the tab
+   * strip, the Continue banner, or picking it straight from the dropdown)
+   * just flips to it. Anything else is starting over, same as every other
+   * map switch has always been.
+   */
+  function switchMap(next: string) {
+    setMapName(next);
+    if (!pages.includes(next)) {
+      setSelectedQuests([]);
+      setActiveWiki(null);
+      setQuery('');
+      setPages([]);
+      setMultiMapQuests({});
+      setAddedOnPage({});
+    }
   }
 
   const apiSpawns = useMemo(() => api?.spawns ?? [], [api]);
@@ -658,6 +731,10 @@ export default function App() {
   // view along with you.
   useMirroredField(coop, 'map', mapName, setMapName);
   useMirroredField(coop, 'quests', selectedQuests, setSelectedQuests);
+  useMirroredField(coop, 'pages', pages, setPages);
+  // Which page a quest belongs on is part of the shared plan, not personal
+  // progress -- unlike multiMapQuests, both players must see the same thing.
+  useMirroredField(coop, 'addedOnPage', addedOnPage, setAddedOnPage);
   useMirroredField(coop, 'spawn', clickedSpawn, setClickedSpawn);
   useMirroredField(coop, 'zone', zoneIndex, setZoneIndex);
   useMirroredField(coop, 'selected', selectedOrder, setSelectedOrder);
@@ -734,14 +811,24 @@ export default function App() {
 
           <div className="panel">
             <h2>Map</h2>
-            <select
-              value={mapName}
-              onChange={(e) => { setMapName(e.target.value); setSelectedQuests([]); setActiveWiki(null); setQuery(''); }}
-            >
+            <select value={mapName} onChange={(e) => switchMap(e.target.value)}>
               {maps.map((m) => (
                 <option key={m.normalizedName} value={m.normalizedName}>{m.wikiName}</option>
               ))}
             </select>
+            {pages.length > 1 && (
+              <div className="page-tabs">
+                {pages.map((p, i) => (
+                  <button
+                    key={p}
+                    className={p === mapName ? 'active' : ''}
+                    onClick={() => switchMap(p)}
+                  >
+                    {i + 1}. {mapDisplayName(p)}
+                  </button>
+                ))}
+              </div>
+            )}
             <label className="toggle">
               <input type="checkbox" checked={showSnipers} onChange={(e) => setShowSnipers(e.target.checked)} />
               Show sniper scavs ({sniperSpawns.length})
@@ -800,9 +887,9 @@ export default function App() {
               <p className="muted small">No {wikiMapName} quest matches "{query.trim()}".</p>
             )}
 
-            {selectedQuests.length > 0 && (
+            {visibleSelectedQuests.length > 0 && (
               <ul className="chosen">
-                {selectedQuests.map((title) => (
+                {visibleSelectedQuests.map((title) => (
                   <li
                     key={title}
                     className={activeWiki === title ? 'active' : ''}
@@ -1044,7 +1131,7 @@ export default function App() {
                   <strong>{title}</strong> also needs {remaining.map(mapDisplayName).join(', ')}.
                   {transit && ` Use the transit to ${mapDisplayName(nextMap)} to get there.`}
                 </p>
-                <button onClick={() => setMapName(nextMap)}>
+                <button onClick={() => switchMap(nextMap)}>
                   Continue to {mapDisplayName(nextMap)}
                 </button>
               </div>

@@ -289,7 +289,20 @@ Two maps have unrelated coordinate systems, so there's no drawing one
 continuous route across both — clicking Continue switches the app to the next
 map's own route for the same quest, picking up exactly where the existing
 per-map routing already works, with your other selected quests and wiki data
-carried over untouched.
+carried over untouched. The route itself ends at that transit rather than the
+nearest plain extract, since walking out a normal exit would end the raid
+instead of carrying the quest onto its next map.
+
+Confirming turns the run into **pages** — one per map, numbered tabs next to
+the Map dropdown once there is more than one. Each page's quest list shows
+only what belongs there: the transit quest itself on every map it spans, and
+anything else only on the page you added it from — add an unrelated
+Factory-only quest while on the Factory page and it stays there, out of the
+way while you're looking at Customs. Switching to any page — by tab or by
+picking its map from the dropdown — never wipes the run; picking a map that
+*isn't* one of the run's pages does, same as a plain map switch always has.
+Run requirements and Finish Run both still cover the whole run regardless of
+which page is active, since you gear up once before the raid for every leg.
 
 **Finish run only ever offers a multi-map quest once every leg has actually
 been reached in the app** — not just the first. A quest still waiting on a
