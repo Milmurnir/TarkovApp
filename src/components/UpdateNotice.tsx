@@ -19,6 +19,24 @@ export default function UpdateNotice() {
   /** Set once the bundle is unpacked: only a restart is left. */
   const installed = useRef(false);
 
+  // Takes the just-fetched result as a parameter rather than reading `result`
+  // from state: `check` calls this in the same tick as `setResult(found)`,
+  // before that state update has actually landed.
+  const install = useCallback(async (target: UpdateCheck | null) => {
+    if (!bridge || !target) return;
+    setPhase('downloading');
+    setProgress({ received: 0, total: target.size ?? 0 });
+    const outcome = await bridge.download();
+
+    if (!outcome.installed) {
+      setPhase('error');
+      setMessage(outcome.error ?? 'The update could not be installed.');
+      return;
+    }
+    installed.current = true;
+    setPhase('ready');
+  }, [bridge]);
+
   const check = useCallback(async (announce: boolean) => {
     if (!bridge) return;
     setPhase('checking');
@@ -38,7 +56,16 @@ export default function UpdateNotice() {
     }
     if (found.available) {
       setPhase('offered');
-      setOpen(true);
+      if (found.requiresReinstall) {
+        // Cannot be automated: a human has to actually go get the installer.
+        setOpen(true);
+      } else {
+        // Downloads quietly in the background -- no click needed, and no
+        // popup stealing focus from someone mid-raid. It only takes effect
+        // on the next restart regardless, whether that is "Restart now"
+        // below or just closing and reopening the app later.
+        install(found);
+      }
       return;
     }
     setPhase('idle');
@@ -49,7 +76,7 @@ export default function UpdateNotice() {
           : 'You are on the latest version.',
       );
     }
-  }, [bridge]);
+  }, [bridge, install]);
 
   useEffect(() => {
     if (!bridge) return;
@@ -74,21 +101,6 @@ export default function UpdateNotice() {
 
   if (!bridge) return null;
 
-  async function install() {
-    if (!bridge) return;
-    setPhase('downloading');
-    setProgress({ received: 0, total: result?.size ?? 0 });
-    const outcome = await bridge.download();
-
-    if (!outcome.installed) {
-      setPhase('error');
-      setMessage(outcome.error ?? 'The update could not be installed.');
-      return;
-    }
-    installed.current = true;
-    setPhase('ready');
-  }
-
   const percent = progress.total > 0 ? Math.round((progress.received / progress.total) * 100) : 0;
   const version = info ? info.uiVersion : '';
   // Dismissing the popup should not hide the update until the next launch: the
@@ -103,9 +115,10 @@ export default function UpdateNotice() {
         <button
           className={waiting ? 'update-check waiting' : 'update-check'}
           onClick={() => (waiting ? setOpen(true) : check(true))}
-          disabled={phase === 'checking'}
+          disabled={phase === 'checking' || phase === 'downloading'}
         >
           {phase === 'checking' ? 'Checking...'
+            : phase === 'downloading' ? 'Updating...'
             : phase === 'ready' ? 'Restart to finish update'
             : waiting ? `Update to v${result?.version}`
             : 'Check for updates'}
@@ -173,9 +186,6 @@ export default function UpdateNotice() {
                     Open download page
                   </button>
                 )
-              )}
-              {phase === 'offered' && !result?.requiresReinstall && (
-                <button className="primary" onClick={install}>Update now</button>
               )}
               {phase === 'ready' && (
                 <button className="primary" onClick={() => bridge.restart()}>Restart now</button>

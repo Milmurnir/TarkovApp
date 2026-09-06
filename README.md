@@ -399,17 +399,24 @@ release tagged `vX.Y.Z`, and attach `ui.zip`. The release feed is
 A repo with no releases yet is a normal state, not an error — the app says so
 and stays quiet about it on startup.
 
-Users get a popup on startup (and a `check for updates` button in the header).
-Accepting it downloads the bundle into their user-data folder; the next launch
-serves that instead of the one the build shipped with, and a fresh install
-always wins over a stale download.
+Fully automatic when no shell change is involved: the app checks on startup
+and, if a newer bundle is out, downloads it into the user-data folder
+immediately — no click, no popup stealing focus from someone mid-raid. The
+header's version button reflects it (`Updating...`, then
+`Restart to finish update`), and clicking that opens a small popup with a
+`Restart now` button, but nothing forces a restart on you — the next launch
+serves the new bundle regardless, whether that is an explicit restart now or
+just closing and reopening the app later. A fresh install always wins over a
+stale download. Manually clicking `Check for updates` behaves the same way.
 
 **What this cannot update is the shell itself** — `electron/main.cjs`,
 `server.cjs`, `preload.cjs`, `updater.cjs`. When one of those changes, bump
 `shellVersion` in `package.json`, rebuild the installer with `npm run dist`, and
 put a `requires-shell: <n>` line in the release notes. The app reads that line
-and tells users to reinstall instead of offering an update that would not take
-effect. The line is stripped from the notes shown in the popup.
+and — since this is the one case that genuinely cannot be automated — pops
+the popup itself, telling the user to go reinstall rather than silently
+downloading a bundle that would not take effect. The line is stripped from
+the notes shown in the popup.
 
 ## Layout
 
