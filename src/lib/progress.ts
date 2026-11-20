@@ -1,4 +1,5 @@
 import type { Task } from './types';
+import { cleanTraderStanding, traderBlock, type TraderStanding } from './traders';
 
 /**
  * Your quest progress, kept on this machine.
@@ -38,6 +39,7 @@ function store(): AppStore | null {
 interface StoredProgress {
   completed: string[];
   playerLevel: number | null;
+  traders: TraderStanding;
   updatedAt: number;
 }
 
@@ -45,6 +47,7 @@ function toStored(progress: Progress): StoredProgress {
   return {
     completed: [...progress.completed],
     playerLevel: progress.playerLevel,
+    traders: progress.traders,
     updatedAt: progress.updatedAt,
   };
 }
@@ -54,6 +57,7 @@ function fromStored(raw: any): Progress | null {
   return {
     completed: new Set(raw.completed.filter((id: unknown) => typeof id === 'string')),
     playerLevel: typeof raw.playerLevel === 'number' ? raw.playerLevel : null,
+    traders: cleanTraderStanding(raw.traders),
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
   };
 }
@@ -62,11 +66,13 @@ export interface Progress {
   completed: Set<string>;
   /** Used to tell "available" from "too low level"; null means do not check. */
   playerLevel: number | null;
+  /** Which traders are unlocked and at what loyalty level; see traders.ts. */
+  traders: TraderStanding;
   updatedAt: number;
 }
 
 export function emptyProgress(): Progress {
-  return { completed: new Set(), playerLevel: null, updatedAt: 0 };
+  return { completed: new Set(), playerLevel: null, traders: {}, updatedAt: 0 };
 }
 
 /** Reads localStorage only: synchronous, so the first render has something. */
@@ -132,7 +138,7 @@ export function withCompleted(progress: Progress, ids: string[], done: boolean):
 }
 
 /** Why a quest is not worth adding to the route right now. */
-export type TaskStanding = 'available' | 'completed' | 'locked' | 'too-low-level';
+export type TaskStanding = 'available' | 'completed' | 'locked' | 'trader-locked' | 'too-low-level';
 
 export function standingOf(task: Task, progress: Progress): TaskStanding {
   if (!task.id) return 'available';
@@ -157,7 +163,12 @@ export function standingOf(task: Task, progress: Progress): TaskStanding {
  */
 export function standingById(
   id: string,
-  index: { requires: Record<string, string[]>; minLevel: Record<string, number> },
+  index: {
+    requires: Record<string, string[]>;
+    minLevel: Record<string, number>;
+    trader?: Record<string, string>;
+    traderLevel?: Record<string, { trader: string; level: number }[]>;
+  },
   progress: Progress,
 ): TaskStanding {
   if (progress.completed.has(id)) return 'completed';
@@ -168,6 +179,9 @@ export function standingById(
   if ((index.requires[id] ?? []).some((required) => !progress.completed.has(required))) {
     return 'locked';
   }
+
+  // A trader the player has marked locked, or below the loyalty level asked for.
+  if (traderBlock(id, index, progress.traders ?? {})) return 'trader-locked';
 
   const minLevel = index.minLevel[id];
   if (progress.playerLevel !== null && typeof minLevel === 'number' && progress.playerLevel < minLevel) {

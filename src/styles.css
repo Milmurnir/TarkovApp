@@ -413,6 +413,10 @@ button:hover { border-color: var(--accent); }
 .catch-up-actions .primary { background: var(--accent); color: #0b0f14; border-color: var(--accent); font-weight: 600; }
 .catch-up-actions .primary:disabled { background: transparent; color: var(--muted); border-color: var(--border); font-weight: 400; }
 .level-row input[type="date"] { width: auto; }
+.trader-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px 14px; }
+.trader-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.trader-row span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trader-row select { flex: none; width: 84px; padding: 4px 6px; font-size: 12px; }
 .facts dd { overflow-wrap: anywhere; }
 .progress-reset { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .progress-reset button { font-size: 12px; padding: 4px 8px; }

@@ -19,8 +19,8 @@ const BASE = '/api/json';
 // The two are versioned together on purpose: the index is only written during a
 // full fetch, so leaving the slice cache warm across an index change would leave
 // the index empty and every quest looking unavailable.
-const CACHE_PREFIX = 'tarkov-json-slice-v7:';
-const GRAPH_KEY = 'tarkov-task-index-v4';
+const CACHE_PREFIX = 'tarkov-json-slice-v8:';
+const GRAPH_KEY = 'tarkov-task-index-v5';
 // Loose loot is hundreds of kilobytes per map and only the loot run wants it,
 // so it lives under its own key rather than bloating every quest lookup.
 const LOOT_PREFIX = 'tarkov-loose-loot-v1:';
@@ -358,7 +358,7 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
   // and a quest with no coordinates here still has an id worth writing back.
   // Ids and names only, which stays small enough to keep around.
   const key = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const index: TaskIndex = { requires: {}, idByName: {}, minLevel: {} };
+  const index: TaskIndex = { requires: {}, idByName: {}, minLevel: {}, trader: {}, traderLevel: {} };
   for (const raw of asList<any>(tasksPayload?.data?.tasks)) {
     if (typeof raw?.id !== 'string') continue;
     index.requires[raw.id] = (raw.taskRequirements ?? [])
@@ -375,6 +375,16 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
     if (shown && !(key(shown) in index.idByName)) index.idByName[key(shown)] = raw.id;
 
     if (typeof raw.minPlayerLevel === 'number') index.minLevel[raw.id] = raw.minPlayerLevel;
+
+    // Who gives it, and any trader loyalty level it needs -- what the
+    // player's trader settings are checked against (see traders.ts).
+    const giver = typeof raw.trader === 'string' ? raw.trader : raw.trader?.id;
+    if (typeof giver === 'string') index.trader[raw.id] = giver;
+    const levels = (raw.traderRequirements ?? [])
+      .filter((req: any) => req?.requirementType === 'level' && typeof req.value === 'number')
+      .map((req: any) => ({ trader: typeof req.trader === 'string' ? req.trader : req.trader?.id, level: req.value }))
+      .filter((req: any) => typeof req.trader === 'string');
+    if (levels.length > 0) index.traderLevel[raw.id] = levels;
   }
   try {
     localStorage.setItem(GRAPH_KEY, JSON.stringify(index));
@@ -410,17 +420,23 @@ export interface TaskIndex {
   idByName: Record<string, string>;
   /** Task id -> minimum player level, where the data gives one. */
   minLevel: Record<string, number>;
+  /** Task id -> id of the trader who gives it. */
+  trader: Record<string, string>;
+  /** Task id -> trader loyalty levels it needs, e.g. Jaeger LL3. */
+  traderLevel: Record<string, { trader: string; level: number }[]>;
 }
 
 export function loadTaskIndex(): TaskIndex {
   try {
     const raw = localStorage.getItem(GRAPH_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && parsed.requires && parsed.idByName && parsed.minLevel) return parsed as TaskIndex;
+    if (parsed && parsed.requires && parsed.idByName && parsed.minLevel) {
+      return { trader: {}, traderLevel: {}, ...parsed } as TaskIndex;
+    }
   } catch {
     // Fall through to an empty index; it is rebuilt on the next load.
   }
-  return { requires: {}, idByName: {}, minLevel: {} };
+  return { requires: {}, idByName: {}, minLevel: {}, trader: {}, traderLevel: {} };
 }
 
 export interface LooseLootPoint {

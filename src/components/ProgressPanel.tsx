@@ -4,6 +4,7 @@ import {
   type Progress, type ProgressExport,
 } from '../lib/progress';
 import { searchQuests } from '../lib/wiki';
+import { QUEST_TRADERS } from '../lib/traders';
 
 interface Props {
   progress: Progress;
@@ -24,6 +25,8 @@ interface Props {
   onAddAvailable: () => void;
   onHideFinished: (hide: boolean) => void;
   onSetLevel: (level: number | null) => void;
+  /** Null clears it back to "not set", which filters nothing. */
+  onSetTrader: (traderId: string, level: number | null) => void;
   onImport: (payload: ProgressExport, mode: 'replace' | 'merge') => void;
   onReset: () => void;
 }
@@ -41,7 +44,7 @@ function normalize(value: string): string {
  */
 export default function ProgressPanel({
   progress, questTitles, idByName, requires, mapName, availableTitles, indexing, hideFinished,
-  onCatchUp, onUnmark, onAddAvailable, onHideFinished, onSetLevel, onImport, onReset,
+  onCatchUp, onUnmark, onAddAvailable, onHideFinished, onSetLevel, onSetTrader, onImport, onReset,
 }: Props) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
@@ -119,6 +122,39 @@ export default function ProgressPanel({
       </label>
 
       <section className="section">
+        <h3>Traders</h3>
+        <p className="muted small">
+          Quests from a locked trader, or needing a higher loyalty level than yours, stop counting as
+          available. Leave a trader on "—" to never filter by it.
+        </p>
+        <div className="trader-grid">
+          {QUEST_TRADERS.map((trader) => {
+            const value = progress.traders?.[trader.id];
+            return (
+              <label key={trader.id} className="trader-row">
+                <span className="small">{trader.name}</span>
+                <select
+                  value={value === undefined ? '' : String(value)}
+                  onChange={(event) => onSetTrader(
+                    trader.id,
+                    event.target.value === '' ? null : Number(event.target.value),
+                  )}
+                >
+                  <option value="">—</option>
+                  <option value="0">Locked</option>
+                  {trader.levels === 1
+                    ? <option value="1">Unlocked</option>
+                    : Array.from({ length: trader.levels }, (_, i) => (
+                        <option key={i + 1} value={String(i + 1)}>LL{i + 1}</option>
+                      ))}
+                </select>
+              </label>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="section">
         <h3>Catch up</h3>
         <p className="muted small">
           Name a quest and everything before it in the chain is marked finished. Adding a quest to
@@ -188,7 +224,9 @@ export default function ProgressPanel({
           : `Add ${availableTitles.length} available quest${availableTitles.length === 1 ? '' : 's'}`}
       </button>
       <p className="muted small">
-        Available means unfinished, prerequisites done{progress.playerLevel !== null && ' and your level is high enough'}.
+        Available means unfinished, prerequisites done
+        {Object.keys(progress.traders ?? {}).length > 0 && ', the trader unlocked at a high enough loyalty level'}
+        {progress.playerLevel !== null && ' and your level is high enough'}.
       </p>
 
       <label className="toggle">

@@ -129,7 +129,12 @@ export function useGameLogSync({
     if (!wipePrompt) return;
     if (matchGame) {
       const inGame = [...withChains(finished, requires)];
-      changeProgress((latest) => ({ ...withCompleted(emptyProgress(), inGame, true), playerLevel: latest.playerLevel }));
+      // Which quests are done is the game's call; level and traders stay the player's.
+      changeProgress((latest) => ({
+        ...withCompleted(emptyProgress(), inGame, true),
+        playerLevel: latest.playerLevel,
+        traders: latest.traders,
+      }));
     }
     updateSettings({ gameLogWipeSeen: wipePrompt.at });
   }

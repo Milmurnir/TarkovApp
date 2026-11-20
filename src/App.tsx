@@ -22,6 +22,7 @@ import Fold from './components/Fold';
 import { loadSettings, saveSettings, type Settings } from './lib/settings';
 import { loadRunState, saveRunState } from './lib/runState';
 import { useGameLogSync } from './lib/useGameLogSync';
+import { traderBlock } from './lib/traders';
 import { loadFleaItems } from './lib/priceCheck';
 import { questMapSpan } from './lib/multiMap';
 import MultiMapPrompt from './components/MultiMapPrompt';
@@ -481,6 +482,8 @@ export default function App() {
     updateProgress({
       ...merged,
       playerLevel: mode === 'replace' ? payload.playerLevel : (progress.playerLevel ?? payload.playerLevel),
+      // Trader settings are not in the export, so a friend's file never resets yours.
+      traders: progress.traders,
     });
     setLastBackfill(null);
   }
@@ -1155,6 +1158,15 @@ export default function App() {
                     {standingFor(title) === 'locked' && (
                       <span className="tag" title="A prerequisite quest is not finished yet">locked</span>
                     )}
+                    {standingFor(title) === 'trader-locked' && (
+                      <span
+                        className="tag"
+                        title={traderBlock(taskIndex.idByName[normalize(title)] ?? '', taskIndex, progress.traders)
+                          ?? 'Your trader settings rule this quest out'}
+                      >
+                        trader
+                      </span>
+                    )}
                     {standingFor(title) === 'too-low-level' && (
                       <span className="tag" title="Your level (set under Your progress) is below this quest's requirement">level</span>
                     )}
@@ -1266,6 +1278,12 @@ export default function App() {
                 onAddAvailable={addAvailableQuests}
                 onHideFinished={setHideFinished}
                 onSetLevel={(level) => updateProgress({ ...progress, playerLevel: level })}
+            onSetTrader={(traderId, level) => changeProgress((current) => {
+              const traders = { ...current.traders };
+              if (level === null) delete traders[traderId];
+              else traders[traderId] = level;
+              return { ...current, traders };
+            })}
                 onImport={importProgress}
                 onReset={() => updateProgress(emptyProgress())}
               />
