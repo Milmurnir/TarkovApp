@@ -176,12 +176,12 @@ Interchange, Reserve or Ground Zero, which genuinely have no marksman waves.
 
 Hold **Ctrl** and tap **G** twice in quick succession (within 450ms) — the
 default combo, changeable in Settings — from anywhere — the game, another
-app, or with the main window minimized to tray — and a small always-on-top
+app, or with the main window minimized — and a small always-on-top
 popup appears with the search box already focused. Type an item name, and
 every match shows its icon and price inline — labelled with which number it
 is — with the other figures and per-slot price on hover, live as you type.
-Esc, or clicking anywhere outside the popup, hides it again; the app keeps
-running in the tray.
+Esc, or clicking anywhere outside the popup, hides it again. The hotkey works
+for as long as the app is running, minimized included.
 
 A few implementation notes:
 
@@ -222,9 +222,10 @@ A few implementation notes:
   rather than leaving the hotkey dead. The choice is stored outside the
   renderer (`electron/store.cjs`), since it has to be read before any window,
   let alone the Settings panel, exists.
-- **Minimize-to-tray is new.** Closing the main window now hides it instead of
-  quitting, so the hotkey keeps working in the background — use the tray
-  icon's *Quit* to actually exit.
+- **The window's X quits.** It used to hide the app to the tray so the hotkey
+  kept working, but that read as "I closed it and it's still running". Now X
+  exits completely; minimize instead to keep the hotkey alive in the
+  background. The tray icon's *Quit* still works too.
 - **Exclusive fullscreen is a real limitation.** An always-on-top window can
   only draw over a game running borderless/fullscreen-windowed. True exclusive
   fullscreen hands the whole display to the game at the driver level, and no

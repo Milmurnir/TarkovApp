@@ -77,13 +77,14 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // The whole point of the tray icon: closing the window backgrounds the app
-  // (so the price-check hotkey keeps working) instead of quitting it.
-  window.on('close', (event) => {
-    if (!quitting) {
-      event.preventDefault();
-      window.hide();
-    }
+  // The window's X quits the whole app, as players expect -- hiding to the
+  // tray instead read as "I closed it but it is still running". Minimising
+  // is how to keep it (and the price-check hotkey) alive in the background.
+  // Setting `quitting` first lets the overlay window close too rather than
+  // hide, so nothing is left behind.
+  window.on('close', () => {
+    quitting = true;
+    app.quit();
   });
 
   window.loadURL(url);
