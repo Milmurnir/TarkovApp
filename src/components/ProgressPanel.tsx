@@ -226,6 +226,8 @@ export default function ProgressPanel({
       <p className="muted small">
         Available means unfinished, prerequisites done
         {Object.keys(progress.traders ?? {}).length > 0 && ', the trader unlocked at a high enough loyalty level'}
+        , and for quests unlocked by a trader conversation or story progress, given to you in game (read from
+        the game's logs)
         {progress.playerLevel !== null && ' and your level is high enough'}.
       </p>
 

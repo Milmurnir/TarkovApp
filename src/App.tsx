@@ -27,7 +27,7 @@ import { loadFleaItems } from './lib/priceCheck';
 import { questMapSpan } from './lib/multiMap';
 import MultiMapPrompt from './components/MultiMapPrompt';
 import {
-  emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, saveProgress,
+  emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, onDurableSave, persistDurable, saveProgress,
   standingById, withCompleted, type Progress, type ProgressExport,
 } from './lib/progress';
 import { useCoopRun, useMirroredField } from './lib/useCoopRun';
@@ -197,9 +197,16 @@ export default function App() {
       // Written straight back out, so localStorage matches from here on and a
       // restore leaves a trace rather than being invisible.
       if (restored) setProgress(saveProgress(restored));
+      // Otherwise the file may be the one that is behind: bring it up to date
+      // now rather than leaving it stale until the next change.
+      else if (progress.updatedAt > 0) persistDurable(progress);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Set when progress stops reaching the durable file, so it is seen rather than swallowed. */
+  const [durableProblem, setDurableProblem] = useState<string | null>(null);
+  useEffect(() => onDurableSave((state) => setDurableProblem(state && !state.ok ? state.reason : null)), []);
 
   const coop = useCoopRun();
   /** The checklist is shared during a run and kept locally otherwise. */
@@ -314,10 +321,10 @@ export default function App() {
     for (const title of mapQuestTitles) {
       const key = normalize(title);
       const id = taskIndex.idByName[key];
-      if (id) byName.set(key, standingById(id, taskIndex, progress));
+      if (id) byName.set(key, standingById(id, taskIndex, progress, gameLogs.given));
     }
     return byName;
-  }, [mapQuestTitles, taskIndex, progress]);
+  }, [mapQuestTitles, taskIndex, progress, gameLogs.given]);
 
   function standingFor(title: string) {
     return standingByQuest.get(normalize(title)) ?? 'available';
@@ -1158,6 +1165,14 @@ export default function App() {
                     {standingFor(title) === 'locked' && (
                       <span className="tag" title="A prerequisite quest is not finished yet">locked</span>
                     )}
+                    {standingFor(title) === 'not-given' && (
+                      <span
+                        className="tag"
+                        title="Unlocks through a trader conversation or story progress, and the game's logs show it has not been given to you yet"
+                      >
+                        not given
+                      </span>
+                    )}
                     {standingFor(title) === 'trader-locked' && (
                       <span
                         className="tag"
@@ -1184,6 +1199,13 @@ export default function App() {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {durableProblem && (
+              <p className="error small">
+                Progress is not reaching its save file ({durableProblem}). It is still kept inside the
+                app, but would not survive a reinstall — please report this.
+              </p>
             )}
 
             {gameLogs.lastImport && (

@@ -19,8 +19,8 @@ const BASE = '/api/json';
 // The two are versioned together on purpose: the index is only written during a
 // full fetch, so leaving the slice cache warm across an index change would leave
 // the index empty and every quest looking unavailable.
-const CACHE_PREFIX = 'tarkov-json-slice-v8:';
-const GRAPH_KEY = 'tarkov-task-index-v5';
+const CACHE_PREFIX = 'tarkov-json-slice-v9:';
+const GRAPH_KEY = 'tarkov-task-index-v6';
 // Loose loot is hundreds of kilobytes per map and only the loot run wants it,
 // so it lives under its own key rather than bloating every quest lookup.
 const LOOT_PREFIX = 'tarkov-loose-loot-v1:';
@@ -358,7 +358,7 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
   // and a quest with no coordinates here still has an id worth writing back.
   // Ids and names only, which stays small enough to keep around.
   const key = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const index: TaskIndex = { requires: {}, idByName: {}, minLevel: {}, trader: {}, traderLevel: {} };
+  const index: TaskIndex = { requires: {}, idByName: {}, minLevel: {}, trader: {}, traderLevel: {}, gated: {} };
   for (const raw of asList<any>(tasksPayload?.data?.tasks)) {
     if (typeof raw?.id !== 'string') continue;
     index.requires[raw.id] = (raw.taskRequirements ?? [])
@@ -385,6 +385,12 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
       .map((req: any) => ({ trader: typeof req.trader === 'string' ? req.trader : req.trader?.id, level: req.value }))
       .filter((req: any) => typeof req.trader === 'string');
     if (levels.length > 0) index.traderLevel[raw.id] = levels;
+
+    // Since 1.0 many quests unlock through a trader conversation or a story
+    // counter instead of a finished prerequisite. Nothing in the data says
+    // when those are met, so they are flagged and only the game's own logs
+    // can say whether one has actually been handed out (see standingById).
+    if (Array.isArray(raw.otherRequirements) && raw.otherRequirements.length > 0) index.gated[raw.id] = true;
   }
   try {
     localStorage.setItem(GRAPH_KEY, JSON.stringify(index));
@@ -424,6 +430,8 @@ export interface TaskIndex {
   trader: Record<string, string>;
   /** Task id -> trader loyalty levels it needs, e.g. Jaeger LL3. */
   traderLevel: Record<string, { trader: string; level: number }[]>;
+  /** Task ids unlocked by trader dialogue or story progress, not just prerequisites. */
+  gated: Record<string, true>;
 }
 
 export function loadTaskIndex(): TaskIndex {
@@ -431,12 +439,12 @@ export function loadTaskIndex(): TaskIndex {
     const raw = localStorage.getItem(GRAPH_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && parsed.requires && parsed.idByName && parsed.minLevel) {
-      return { trader: {}, traderLevel: {}, ...parsed } as TaskIndex;
+      return { trader: {}, traderLevel: {}, gated: {}, ...parsed } as TaskIndex;
     }
   } catch {
     // Fall through to an empty index; it is rebuilt on the next load.
   }
-  return { requires: {}, idByName: {}, minLevel: {}, trader: {}, traderLevel: {} };
+  return { requires: {}, idByName: {}, minLevel: {}, trader: {}, traderLevel: {}, gated: {} };
 }
 
 export interface LooseLootPoint {

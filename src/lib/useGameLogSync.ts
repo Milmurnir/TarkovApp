@@ -26,6 +26,11 @@ export interface GameLogSync {
   countingSince: number | null;
   /** Quests the logs show finished in the counted window. */
   finishedInLogs: number;
+  /**
+   * Quests the game has handed out (started, finished or failed) in the counted
+   * window, or null when the logs are not being read or could not be found.
+   */
+  given: Set<string> | null;
   /** The last time quests were ticked off from the logs, for the sidebar note. */
   lastImport: { count: number; at: number } | null;
   dismissImport: () => void;
@@ -99,6 +104,16 @@ export function useGameLogSync({
     [events, known, ready, countingSince],
   );
 
+  const given = useMemo(() => {
+    if (!enabled || !scan?.ok || !ready) return null;
+    const ids = new Set<string>();
+    for (const event of events) {
+      if (countingSince !== null && event.at < countingSince) continue;
+      if (known.has(event.id)) ids.add(event.id);
+    }
+    return ids;
+  }, [enabled, scan, ready, events, countingSince, known]);
+
   // Adds whatever the logs say is finished and progress does not have yet.
   useEffect(() => {
     if (!enabled || finished.length === 0) return;
@@ -154,6 +169,7 @@ export function useGameLogSync({
     detectedWipe,
     countingSince,
     finishedInLogs: finished.length,
+    given,
     lastImport,
     dismissImport: () => setLastImport(null),
     wipePrompt: wipePrompt && wipePrompt.extra > 0 ? wipePrompt : null,

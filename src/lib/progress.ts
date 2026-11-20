@@ -122,10 +122,52 @@ export function saveProgress(progress: Progress): Progress {
   }
   // Written to both: localStorage is what the next render reads, the file is
   // what an update or a changed port cannot take away.
-  store()?.set('progress', serialisable).catch(() => {
-    // Reported nowhere on purpose; localStorage still holds this session.
-  });
+  writeDurable(serialisable);
   return stored;
+}
+
+/**
+ * Whether the last write to the durable file worked: null when there is no
+ * file to write (a plain browser), else ok or the reason it did not. It used
+ * to be swallowed, which is how progress once quietly stopped reaching the
+ * file for an evening with nothing on screen to say so.
+ */
+export type DurableSaveState = { ok: true } | { ok: false; reason: string } | null;
+let durableState: DurableSaveState = null;
+const durableListeners = new Set<(state: DurableSaveState) => void>();
+
+export function onDurableSave(listener: (state: DurableSaveState) => void): () => void {
+  durableListeners.add(listener);
+  listener(durableState);
+  return () => { durableListeners.delete(listener); };
+}
+
+function reportDurable(state: DurableSaveState) {
+  durableState = state;
+  for (const listener of durableListeners) listener(state);
+}
+
+function writeDurable(serialisable: StoredProgress) {
+  const bridge = store();
+  if (!bridge) {
+    // The desktop app always has the bridge; only a plain browser lacks it.
+    if (typeof window !== 'undefined' && (window as { appUpdates?: unknown }).appUpdates) {
+      reportDurable({ ok: false, reason: 'the app could not reach its save file' });
+    }
+    return;
+  }
+  bridge.set('progress', serialisable)
+    .then((ok) => reportDurable(ok ? { ok: true } : { ok: false, reason: 'the save file could not be written' }))
+    .catch((error) => reportDurable({ ok: false, reason: String(error?.message ?? error) }));
+}
+
+/**
+ * Writes progress to the durable file as it is, without touching its time.
+ * Used at startup when the file is behind what the app already has, so a
+ * missed write heals itself instead of waiting for the next change.
+ */
+export function persistDurable(progress: Progress): void {
+  writeDurable(toStored(progress));
 }
 
 export function withCompleted(progress: Progress, ids: string[], done: boolean): Progress {
@@ -138,7 +180,7 @@ export function withCompleted(progress: Progress, ids: string[], done: boolean):
 }
 
 /** Why a quest is not worth adding to the route right now. */
-export type TaskStanding = 'available' | 'completed' | 'locked' | 'trader-locked' | 'too-low-level';
+export type TaskStanding = 'available' | 'completed' | 'locked' | 'not-given' | 'trader-locked' | 'too-low-level';
 
 export function standingOf(task: Task, progress: Progress): TaskStanding {
   if (!task.id) return 'available';
@@ -168,8 +210,15 @@ export function standingById(
     minLevel: Record<string, number>;
     trader?: Record<string, string>;
     traderLevel?: Record<string, { trader: string; level: number }[]>;
+    gated?: Record<string, true>;
   },
   progress: Progress,
+  /**
+   * Quests the game's logs show it has handed out this wipe, or null when the
+   * logs are not being read. Decides story/dialogue-gated quests, which the
+   * quest data alone cannot.
+   */
+  given: Set<string> | null = null,
 ): TaskStanding {
   if (progress.completed.has(id)) return 'completed';
 
@@ -179,6 +228,11 @@ export function standingById(
   if ((index.requires[id] ?? []).some((required) => !progress.completed.has(required))) {
     return 'locked';
   }
+
+  // Unlocked by a conversation or story counter the data cannot see: only
+  // available once the game has actually handed it over. Without the logs
+  // there is nothing better to go on, so it is left as before.
+  if (index.gated?.[id] && given && !given.has(id)) return 'not-given';
 
   // A trader the player has marked locked, or below the loyalty level asked for.
   if (traderBlock(id, index, progress.traders ?? {})) return 'trader-locked';
