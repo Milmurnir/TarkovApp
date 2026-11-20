@@ -40,6 +40,9 @@ header h1 { font-size: 20px; margin: 0; letter-spacing: 0.2px; }
 }
 
 aside { display: flex; flex-direction: column; gap: 14px; }
+/* The sidebar scrolls instead of squeezing: without this a child that clips
+   its content (the mode tabs) shrank to nothing once the panels overflowed. */
+aside > * { flex-shrink: 0; }
 
 /* The sidebar scrolls on its own, so the map stays in view while you work
    down the panels -- before, the whole page scrolled and took the map with it. */
