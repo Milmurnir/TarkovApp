@@ -1,7 +1,15 @@
 import type { Route } from '../lib/types';
 import { questColor } from '../lib/questColor';
 
-export default function RouteList({ route }: { route: Route }) {
+interface Props {
+  route: Route;
+  /** The stop shown as "Current objective"; highlighted here too. */
+  selectedOrder?: number | null;
+  /** Clicking a step makes it the current objective, same as clicking its dot. */
+  onSelect?: (order: number) => void;
+}
+
+export default function RouteList({ route, selectedOrder = null, onSelect }: Props) {
   return (
     <div className="panel">
       <div className="panel-head">
@@ -10,43 +18,61 @@ export default function RouteList({ route }: { route: Route }) {
       </div>
 
       <ol className="route">
-        {route.stops.map((stop) => (
-          <li key={`${stop.kind}-${stop.order}`} className={`route-step ${stop.kind}`}>
-            <span
-              className="badge"
-              style={stop.kind === 'objective' && stop.questName
-                ? { background: questColor(stop.questName) }
-                : undefined}
+        {route.stops.map((stop) => {
+          const selected = selectedOrder === stop.order;
+          return (
+            <li
+              key={`${stop.kind}-${stop.order}`}
+              className={`route-step ${stop.kind}${onSelect ? ' selectable' : ''}${selected ? ' selected' : ''}`}
+              {...(onSelect ? {
+                role: 'button',
+                tabIndex: 0,
+                'aria-current': selected ? 'step' as const : undefined,
+                onClick: () => onSelect(stop.order),
+                onKeyDown: (event: React.KeyboardEvent) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(stop.order);
+                  }
+                },
+              } : {})}
             >
-              {stop.kind === 'spawn' ? 'S'
-                : stop.kind === 'extract' ? 'E'
-                : stop.kind === 'switch' ? '⚡'
-                : stop.order}
-            </span>
-            <div>
-              {/* Quest name first: "Objective 3" on its own says nothing about
-                  which quest the matching map dot belongs to. */}
-              <div
-                className="route-label"
-                style={stop.questName ? { color: questColor(stop.questName) } : undefined}
+              <span
+                className="badge"
+                style={stop.kind === 'objective' && stop.questName
+                  ? { background: questColor(stop.questName) }
+                  : undefined}
               >
-                {stop.questName ?? stop.label}
-                {stop.optional && <span className="tag">optional</span>}
-              </div>
-              <div className="muted small">
-                {stop.questName ? `${stop.label} · ` : ''}{stop.description}
-                {stop.count !== null && stop.count !== undefined && stop.count > 1 && (
-                  <span className="count-badge">×{stop.count}</span>
+                {stop.kind === 'spawn' ? 'S'
+                  : stop.kind === 'extract' ? 'E'
+                  : stop.kind === 'switch' ? '⚡'
+                  : stop.order}
+              </span>
+              <div>
+                {/* Quest name first: "Objective 3" on its own says nothing about
+                    which quest the matching map dot belongs to. */}
+                <div
+                  className="route-label"
+                  style={stop.questName ? { color: questColor(stop.questName) } : undefined}
+                >
+                  {stop.questName ?? stop.label}
+                  {stop.optional && <span className="tag">optional</span>}
+                </div>
+                <div className="muted small">
+                  {stop.questName ? `${stop.label} · ` : ''}{stop.description}
+                  {stop.count !== null && stop.count !== undefined && stop.count > 1 && (
+                    <span className="count-badge">×{stop.count}</span>
+                  )}
+                </div>
+                {stop.legDistance > 0 && (
+                  <div className="muted small">
+                    {Math.round(stop.legDistance)} m from previous · {Math.round(stop.cumulativeDistance)} m cumulative
+                  </div>
                 )}
               </div>
-              {stop.legDistance > 0 && (
-                <div className="muted small">
-                  {Math.round(stop.legDistance)} m from previous · {Math.round(stop.cumulativeDistance)} m cumulative
-                </div>
-              )}
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ol>
 
       {route.unmappedObjectives.length > 0 && (

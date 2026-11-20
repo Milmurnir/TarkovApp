@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MapView from './components/MapView';
 import RequirementsPanel from './components/RequirementsPanel';
 import RouteList from './components/RouteList';
@@ -18,7 +18,10 @@ import {
 import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import SettingsPanel from './components/SettingsPanel';
+import Fold from './components/Fold';
 import { loadSettings, saveSettings, type Settings } from './lib/settings';
+import { loadRunState, saveRunState } from './lib/runState';
+import { useGameLogSync } from './lib/useGameLogSync';
 import { loadFleaItems } from './lib/priceCheck';
 import { questMapSpan } from './lib/multiMap';
 import MultiMapPrompt from './components/MultiMapPrompt';
@@ -49,8 +52,16 @@ function normalize(value: string): string {
 }
 
 export default function App() {
+  /** The run left open last time, read once so every piece of state starts from it. */
+  const [restored] = useState(() => loadRunState(DEFAULT_MAP));
+  /**
+   * The map the spawn state belongs to, so only a real switch resets it --
+   * not the first load of the restored map, nor StrictMode re-running effects.
+   */
+  const spawnMap = useRef(restored.mapName);
+
   const [maps, setMaps] = useState<MapIndexEntry[]>([]);
-  const [mapName, setMapName] = useState(DEFAULT_MAP);
+  const [mapName, setMapName] = useState(restored.mapName);
   const [mapData, setMapData] = useState<MapData | null>(null);
 
   const [questTitles, setQuestTitles] = useState<string[]>([]);
@@ -58,9 +69,11 @@ export default function App() {
   const [indexProgress, setIndexProgress] = useState<{ done: number; total: number } | null>(null);
   const [query, setQuery] = useState('');
   /** Quests currently routed together, by wiki title. */
-  const [selectedQuests, setSelectedQuests] = useState<string[]>([]);
+  const [selectedQuests, setSelectedQuests] = useState<string[]>(restored.selectedQuests);
+  /** Keyboard-highlighted row in the quest suggestions. */
+  const [highlight, setHighlight] = useState(0);
   const [wikiByTitle, setWikiByTitle] = useState<Record<string, WikiQuest>>({});
-  const [activeWiki, setActiveWiki] = useState<string | null>(null);
+  const [activeWiki, setActiveWiki] = useState<string | null>(restored.activeWiki);
   const [showSnipers, setShowSnipers] = useState(true);
   const [showTransits, setShowTransits] = useState(true);
   const [wikiError, setWikiError] = useState<string | null>(null);
@@ -68,13 +81,13 @@ export default function App() {
 
   const [api, setApi] = useState<MapSlice | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [zoneIndex, setZoneIndex] = useState(0);
+  const [zoneIndex, setZoneIndex] = useState(restored.zoneIndex);
   /** Spawn placed by clicking the map; takes priority over the zone list. */
-  const [clickedSpawn, setClickedSpawn] = useState<Vec3 | null>(null);
+  const [clickedSpawn, setClickedSpawn] = useState<Vec3 | null>(restored.clickedSpawn);
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
 
   const [progress, setProgress] = useState<Progress>(() => loadProgress());
-  const [hideFinished, setHideFinished] = useState(true);
+  const [hideFinished, setHideFinished] = useState(restored.hideFinished);
   const [finishOpen, setFinishOpen] = useState(false);
   const [showLoot, setShowLoot] = useState(false);
   /** Metres from the route; null means the whole map. */
@@ -97,6 +110,15 @@ export default function App() {
   const [finishSession, setFinishSession] = useState(0);
   /** The last automatic back-fill, kept so it can be undone. */
   const [lastBackfill, setLastBackfill] = useState<{ title: string; ids: string[] } | null>(null);
+  /** The run a map switch just cleared, kept so the switch can be undone. */
+  const [clearedRun, setClearedRun] = useState<{
+    mapName: string;
+    selectedQuests: string[];
+    activeWiki: string | null;
+    pages: string[];
+    multiMapQuests: Record<string, { maps: string[]; visited: string[] }>;
+    addedOnPage: Record<string, string>;
+  } | null>(null);
 
   /**
    * Per multi-map (transit) quest: its full map span and which of those maps
@@ -106,11 +128,15 @@ export default function App() {
    * because an earlier one was. Local only, not coop-mirrored, same as
    * progress/finish tracking (`finishRun` below).
    */
-  const [multiMapQuests, setMultiMapQuests] = useState<Record<string, { maps: string[]; visited: string[] }>>({});
+  const [multiMapQuests, setMultiMapQuests] = useState<Record<string, { maps: string[]; visited: string[] }>>(
+    restored.multiMapQuests,
+  );
   /** Quests just added that span maps, waiting on the player to say whether to include the rest. */
   const [pendingMultiMap, setPendingMultiMap] = useState<{ title: string; maps: string[] }[]>([]);
   /** Asked about once already, so declining does not immediately re-prompt. */
-  const [dismissedMultiMap, setDismissedMultiMap] = useState<Set<string>>(new Set());
+  const [dismissedMultiMap, setDismissedMultiMap] = useState<Set<string>>(
+    () => new Set(restored.dismissedMultiMap),
+  );
   /**
    * The maps this run now spans, in the order they were introduced -- empty
    * means ordinary single-map mode. Grows only when a multi-map quest is
@@ -118,27 +144,50 @@ export default function App() {
    * a map already in here is "flip to that page", switching to anything else
    * is "start over" (see the map `<select>`'s onChange).
    */
-  const [pages, setPages] = useState<string[]>([]);
+  const [pages, setPages] = useState<string[]>(restored.pages);
   /**
    * Which page a quest was added under -- the map you were looking at when
    * you picked it. Decides which page's sidebar list shows it; a quest with
    * no published coordinates at all still belongs to whichever page you
    * added it from, so it must not simply vanish because it can't be routed.
    */
-  const [addedOnPage, setAddedOnPage] = useState<Record<string, string>>({});
+  const [addedOnPage, setAddedOnPage] = useState<Record<string, string>>(restored.addedOnPage);
+
+  // Written through on every change, same as progress, so a crash or an
+  // update restart reopens on the run you were planning.
+  useEffect(() => {
+    saveRunState({
+      mapName,
+      selectedQuests,
+      activeWiki,
+      pages,
+      addedOnPage,
+      multiMapQuests,
+      dismissedMultiMap: Array.from(dismissedMultiMap),
+      clickedSpawn,
+      zoneIndex,
+      hideFinished,
+    });
+  }, [mapName, selectedQuests, activeWiki, pages, addedOnPage, multiMapQuests, dismissedMultiMap,
+    clickedSpawn, zoneIndex, hideFinished]);
 
   /** Every progress change is written through, so a crash loses nothing. */
   function updateProgress(next: Progress) {
     setProgress(saveProgress(next));
   }
 
-  function updateSettings(patch: Partial<Settings>) {
+  /** Same as updateProgress, but from whatever progress is current when it applies. */
+  const changeProgress = useCallback((change: (current: Progress) => Progress) => {
+    setProgress((current) => saveProgress(change(current)));
+  }, []);
+
+  const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((current) => {
       const next = { ...current, ...patch };
       saveSettings(next);
       return next;
     });
-  }
+  }, []);
 
   // A fresh install has an empty localStorage but the user-data file is still
   // there, which is what makes progress outlive replacing the app.
@@ -192,9 +241,13 @@ export default function App() {
   useEffect(() => {
     setMapData(null);
     setLootWanted([]);
-    setClickedSpawn(null);
     setSelectedOrder(null);
-    setZoneIndex(0);
+    // The restored map's spawn is still the right one; only a switch clears it.
+    if (spawnMap.current !== mapName) {
+      spawnMap.current = mapName;
+      setClickedSpawn(null);
+      setZoneIndex(0);
+    }
     fetchMapData(mapName).then(setMapData).catch(() => setMapData(null));
     loadApi();
   }, [mapName]);
@@ -235,6 +288,15 @@ export default function App() {
 
   const taskIndex = useMemo(() => loadTaskIndex(), [api]);
 
+  const gameLogs = useGameLogSync({
+    settings,
+    updateSettings,
+    progress,
+    changeProgress,
+    idByName: taskIndex.idByName,
+    requires: taskIndex.requires,
+  });
+
   const mapQuestTitles = useMemo(() => {
     if (!questIndex || !wikiMapName) return questTitles;
     return questsForMap(questIndex, wikiMapName).map((entry) => entry.title);
@@ -267,18 +329,45 @@ export default function App() {
     [mapQuestTitles, query, selectedQuests, hideFinished, standingByQuest],
   );
 
-  /** Quests on this map you could start right now, and have not already added. */
-  const availableTitles = useMemo(() => mapQuestTitles.filter((title) =>
-    !selectedQuests.includes(title) && standingByQuest.get(normalize(title)) === 'available'),
-  [mapQuestTitles, selectedQuests, standingByQuest]);
+  /**
+   * When the search finds nothing on this map, the same search across every
+   * quest, with the map each one is on -- quests are filtered by map, and a
+   * dead-end "no match" left people thinking a quest was missing.
+   */
+  const elsewhereMatches = useMemo(() => {
+    if (query.trim().length < 2 || suggestions.length > 0 || !questIndex) return [];
+    const onThisMap = new Set(mapQuestTitles);
+    const byTitle = new Map(Object.values(questIndex).map((entry) => [entry.title, entry]));
+    const known = new Set(maps.map((m) => m.wikiName));
+    return searchQuests(questTitles, query)
+      .filter((title) => !onThisMap.has(title) && !selectedQuests.includes(title))
+      .slice(0, 6)
+      .map((title) => ({
+        title,
+        map: byTitle.get(title)?.locations.find((location) => known.has(location)) ?? null,
+      }));
+  }, [query, suggestions, questIndex, mapQuestTitles, questTitles, maps, selectedQuests]);
 
-  function pickQuest(title: string) {
+  /**
+   * Quests on this map you could start right now, and have not already added.
+   * Empty until the index is built: before then `mapQuestTitles` is every
+   * quest in the game, and "add all available" would add every map's quests.
+   */
+  const availableTitles = useMemo(() => (questIndex ? mapQuestTitles.filter((title) =>
+    !selectedQuests.includes(title) && standingByQuest.get(normalize(title)) === 'available') : []),
+  [questIndex, mapQuestTitles, selectedQuests, standingByQuest]);
+
+  function pickQuest(title: string, options: { keepUndo?: boolean; page?: string } = {}) {
     setQuery('');
+    setHighlight(0);
+    // Building a new run here means the old one is not coming back.
+    if (!options.keepUndo) setClearedRun(null);
+    const page = options.page ?? mapName;
     setWikiError(null);
     setSelectedOrder(null);
     setActiveWiki(title);
     setSelectedQuests((current) => (current.includes(title) ? current : [...current, title]));
-    setAddedOnPage((current) => (title in current ? current : { ...current, [title]: mapName }));
+    setAddedOnPage((current) => (title in current ? current : { ...current, [title]: page }));
     backfillFor(title);
     checkMultiMap(title);
 
@@ -506,15 +595,32 @@ export default function App() {
    * map switch has always been.
    */
   function switchMap(next: string) {
+    if (next === mapName) return;
     setMapName(next);
-    if (!pages.includes(next)) {
-      setSelectedQuests([]);
-      setActiveWiki(null);
-      setQuery('');
-      setPages([]);
-      setMultiMapQuests({});
-      setAddedOnPage({});
-    }
+    if (pages.includes(next)) return;
+
+    // Kept for one Undo: the dropdown sits right above the quest list, and a
+    // stray pick used to throw away a whole planned run with no way back.
+    setClearedRun(selectedQuests.length > 0
+      ? { mapName, selectedQuests, activeWiki, pages, multiMapQuests, addedOnPage }
+      : null);
+    setSelectedQuests([]);
+    setActiveWiki(null);
+    setQuery('');
+    setPages([]);
+    setMultiMapQuests({});
+    setAddedOnPage({});
+  }
+
+  function undoMapSwitch() {
+    if (!clearedRun) return;
+    setMapName(clearedRun.mapName);
+    setSelectedQuests(clearedRun.selectedQuests);
+    setActiveWiki(clearedRun.activeWiki);
+    setPages(clearedRun.pages);
+    setMultiMapQuests(clearedRun.multiMapQuests);
+    setAddedOnPage(clearedRun.addedOnPage);
+    setClearedRun(null);
   }
 
   const apiSpawns = useMemo(() => api?.spawns ?? [], [api]);
@@ -667,14 +773,17 @@ export default function App() {
     return allowed.length > 0 ? allowed : pmcOnly;
   }, [api, mapData]);
 
-  /** Where the route starts: the clicked point, else the selected spawn zone. */
+  /**
+   * Where the route starts: the clicked point, else the spawn zone picked in
+   * the sidebar. The API's spawn list is only a last resort -- its first entry
+   * is whatever the API happens to list first, often a scav or boss spawn,
+   * and using it ahead of the zone made the zone picker do nothing.
+   */
   const routeStart = useMemo(() => {
     if (clickedSpawn) return { position: clickedSpawn, zoneName: 'Clicked spawn' };
-    if (apiSpawns.length > 0) {
-      const spawn = apiSpawns[0];
-      return { position: spawn.position, zoneName: spawn.zoneName };
-    }
     if (zoneCentre) return { position: zoneCentre.position, zoneName: zoneCentre.zoneName };
+    const spawn = apiSpawns.find((s) => s.sides?.some((side) => /pmc|all/i.test(side))) ?? apiSpawns[0];
+    if (spawn) return { position: spawn.position, zoneName: spawn.zoneName };
     return null;
   }, [clickedSpawn, apiSpawns, zoneCentre]);
 
@@ -710,6 +819,32 @@ export default function App() {
     if (tasks.length === 0 || !api || !routeStart) return null;
     return buildRoute(tasks, routeStart, routableExtracts, mapName, transitExtract);
   }, [tasks, api, routeStart, routableExtracts, mapName, transitExtract]);
+
+  // ← / → step through the route without reaching for the mouse mid-raid.
+  // Ignored while typing, and while a dialog is open.
+  useEffect(() => {
+    if (mode !== 'quests' || !route || route.stops.length === 0) return;
+    const stops = route.stops;
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+      if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) return;
+      if (document.querySelector('.modal-backdrop')) return;
+
+      const index = stops.findIndex((s) => s.order === selectedOrder);
+      const nextIndex = event.key === 'ArrowRight'
+        ? (index === -1 ? 0 : Math.min(stops.length - 1, index + 1))
+        : (index === -1 ? -1 : Math.max(0, index - 1));
+      if (nextIndex < 0) return;
+      event.preventDefault();
+      setSelectedOrder(stops[nextIndex].order);
+    }
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, route, selectedOrder]);
 
   /** With no coordinates for objectives, at least mark where you spawn. */
   const fallbackStops = useMemo(() => {
@@ -778,7 +913,6 @@ export default function App() {
       <CoopNotices run={coop} />
       <header>
         <h1>Tarkov Quest Router</h1>
-        <span className="muted">quests from the EFT wiki · coordinates from json.tarkov.dev · spawns from SPT</span>
         <UpdateNotice />
       </header>
 
@@ -805,9 +939,10 @@ export default function App() {
             </button>
           </div>
 
-          {mode === 'settings' && (
-            <SettingsPanel settings={settings} onChange={updateSettings} />
-          )}
+          {mode === 'settings' ? (
+            <SettingsPanel settings={settings} onChange={updateSettings} gameLogs={gameLogs} />
+          ) : (
+          <>
 
           <div className="panel">
             <h2>Map</h2>
@@ -816,6 +951,13 @@ export default function App() {
                 <option key={m.normalizedName} value={m.normalizedName}>{m.wikiName}</option>
               ))}
             </select>
+            {clearedRun && (
+              <p className="backfill-note small">
+                Cleared {clearedRun.selectedQuests.length} quest{clearedRun.selectedQuests.length === 1 ? '' : 's'} from{' '}
+                {mapDisplayName(clearedRun.mapName)}.{' '}
+                <button className="muted-button" onClick={undoMapSwitch}>Undo</button>
+              </p>
+            )}
             {pages.length > 1 && (
               <div className="page-tabs">
                 {pages.map((p, i) => (
@@ -841,131 +983,6 @@ export default function App() {
             )}
           </div>
 
-          {mode === 'loot' && (
-            <LootRunPanel
-              items={lootItems}
-              chosen={lootWanted}
-              onAdd={(item) => setLootWanted((current) =>
-                current.some((c) => c.id === item.id) ? current : [...current, item])}
-              onRemove={(id) => setLootWanted((current) => current.filter((c) => c.id !== id))}
-              onClear={() => setLootWanted([])}
-              spots={lootSpots.length}
-              run={lootRun}
-              limit={lootLimit}
-              balance={lootBalance}
-              onBalance={setLootBalance}
-              onLimit={setLootLimit}
-              keyNames={allItemNames}
-              mapName={wikiMapName || mapName}
-              hasSpawn={Boolean(routeStart)}
-            />
-          )}
-
-          {mode === 'quests' && (
-          <div className="panel">
-            <h2>Quests</h2>
-            <input
-              value={query}
-              placeholder={
-                indexProgress
-                  ? `Indexing quests ${indexProgress.done}/${indexProgress.total}...`
-                  : mapQuestTitles.length
-                    ? `Add a ${wikiMapName} quest...`
-                    : 'Loading quest list...'
-              }
-              onChange={(e) => setQuery(e.target.value)}
-              autoFocus
-            />
-            {suggestions.length > 0 && (
-              <ul className="suggestions">
-                {suggestions.map((title) => (
-                  <li key={title}><button onClick={() => pickQuest(title)}>{title}</button></li>
-                ))}
-              </ul>
-            )}
-            {query.trim().length > 1 && suggestions.length === 0 && mapQuestTitles.length > 0 && (
-              <p className="muted small">No {wikiMapName} quest matches "{query.trim()}".</p>
-            )}
-
-            {visibleSelectedQuests.length > 0 && (
-              <ul className="chosen">
-                {visibleSelectedQuests.map((title) => (
-                  <li
-                    key={title}
-                    className={activeWiki === title ? 'active' : ''}
-                    style={{ borderLeft: `4px solid ${questAccent(taskNameFor(title))}` }}
-                  >
-                    <button className="chosen-name" onClick={() => setActiveWiki(title)}>{title}</button>
-                    {/* Adding something you have already done, or cannot start
-                        yet, is worth saying rather than silently routing it. */}
-                    {standingFor(title) === 'completed' && <span className="tag">done</span>}
-                    {standingFor(title) === 'locked' && <span className="tag">locked</span>}
-                    {standingFor(title) === 'too-low-level' && <span className="tag">level</span>}
-                    {unroutable.includes(title) && <span className="tag">no coords</span>}
-                    <button className="chosen-remove" onClick={() => removeQuest(title)} title="Remove">x</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {lastBackfill && (
-              <p className="backfill-note small">
-                Marked the {lastBackfill.ids.length} quest{lastBackfill.ids.length === 1 ? '' : 's'} before{' '}
-                {lastBackfill.title} as finished.{' '}
-                <button className="muted-button" onClick={undoBackfill}>Undo</button>
-              </p>
-            )}
-
-            {selectedQuests.length > 1 && (
-              <p className="muted small">Routing {selectedQuests.length} quests together.</p>
-            )}
-            {questIndex && wikiMapName && selectedQuests.length === 0 && (
-              <p className="muted small">
-                Showing {mapQuestTitles.length} of {questTitles.length} quests: those on {wikiMapName}.
-                Add several to route them in one run.
-              </p>
-            )}
-            {loadingQuest && <p className="muted small">Loading quest...</p>}
-            {wikiError && <p className="error small">{wikiError}</p>}
-          </div>
-          )}
-
-          {mode === 'quests' && (
-          <ProgressPanel
-            progress={progress}
-            questTitles={questTitles}
-            idByName={taskIndex.idByName}
-            requires={taskIndex.requires}
-            mapName={wikiMapName || mapName}
-            availableTitles={availableTitles}
-            hideFinished={hideFinished}
-            onCatchUp={(ids) => updateProgress(withCompleted(progress, ids, true))}
-            onUnmark={(id) => updateProgress(withCompleted(progress, [id], false))}
-            onAddAvailable={addAvailableQuests}
-            onHideFinished={setHideFinished}
-            onSetLevel={(level) => updateProgress({ ...progress, playerLevel: level })}
-            onImport={importProgress}
-            onReset={() => updateProgress(emptyProgress())}
-          />
-          )}
-
-          <LootPanel
-            containers={placedLoot}
-            shown={visibleLoot}
-            enabled={showLoot}
-            onEnabled={setShowLoot}
-            radius={lootRadius}
-            onRadius={setLootRadius}
-            hasRoute={Boolean(route)}
-            hidden={hiddenLoot}
-            onToggleName={(name) => setHiddenLoot((current) =>
-              current.includes(name) ? current.filter((n) => n !== name) : [...current, name])}
-            density={lootDensity}
-            onDensity={setLootDensity}
-          />
-
-          <CoopPanel run={coop} />
-
           <div className="panel">
             <h2>Your spawn</h2>
 
@@ -975,7 +992,10 @@ export default function App() {
                 <button onClick={() => setClickedSpawn(null)}>Undo</button>
               </p>
             ) : (
-              <p className="muted small">Middle-click anywhere on the map to drop your spawn point.</p>
+              <p className="muted small">
+                Pick your spawn area below, or for an exact spot press <strong>Set spawn</strong> on the
+                map (or right-click it).
+              </p>
             )}
 
             {zones.length > 0 && (
@@ -1031,6 +1051,183 @@ export default function App() {
             )}
           </div>
 
+          {mode === 'loot' && (
+            <LootRunPanel
+              items={lootItems}
+              chosen={lootWanted}
+              onAdd={(item) => setLootWanted((current) =>
+                current.some((c) => c.id === item.id) ? current : [...current, item])}
+              onRemove={(id) => setLootWanted((current) => current.filter((c) => c.id !== id))}
+              onClear={() => setLootWanted([])}
+              spots={lootSpots.length}
+              run={lootRun}
+              limit={lootLimit}
+              balance={lootBalance}
+              onBalance={setLootBalance}
+              onLimit={setLootLimit}
+              keyNames={allItemNames}
+              mapName={wikiMapName || mapName}
+              hasSpawn={Boolean(routeStart)}
+            />
+          )}
+
+          {mode === 'quests' && (
+          <div className="panel">
+            <h2>Quests</h2>
+            <input
+              value={query}
+              placeholder={
+                indexProgress
+                  ? `Indexing quests ${indexProgress.done}/${indexProgress.total}...`
+                  : mapQuestTitles.length
+                    ? `Add a ${wikiMapName} quest...`
+                    : 'Loading quest list...'
+              }
+              onChange={(e) => { setQuery(e.target.value); setHighlight(0); }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown' && suggestions.length > 0) {
+                  e.preventDefault();
+                  setHighlight((h) => Math.min(suggestions.length - 1, h + 1));
+                } else if (e.key === 'ArrowUp' && suggestions.length > 0) {
+                  e.preventDefault();
+                  setHighlight((h) => Math.max(0, h - 1));
+                } else if (e.key === 'Enter' && query.trim() && suggestions.length > 0) {
+                  e.preventDefault();
+                  pickQuest(suggestions[Math.min(highlight, suggestions.length - 1)]);
+                } else if (e.key === 'Escape') {
+                  setQuery('');
+                  setHighlight(0);
+                }
+              }}
+              autoFocus
+            />
+            {suggestions.length > 0 && (
+              <ul className="suggestions">
+                {suggestions.map((title, i) => (
+                  <li key={title} className={i === highlight ? 'active' : undefined}>
+                    <button onClick={() => pickQuest(title)} onMouseEnter={() => setHighlight(i)}>{title}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {query.trim().length > 1 && suggestions.length === 0 && mapQuestTitles.length > 0 && (
+              <div className="muted small">
+                No {wikiMapName} quest matches "{query.trim()}".
+                {elsewhereMatches.length > 0 && (
+                  <>
+                    {' '}On other maps:
+                    <ul className="suggestions">
+                      {elsewhereMatches.map((match) => (
+                        <li key={match.title}>
+                          <button
+                            onClick={() => {
+                              const target = maps.find((m) => m.wikiName === match.map)?.normalizedName;
+                              if (target) switchMap(target);
+                              // Keeps the switch's Undo: this pick is part of that switch.
+                              pickQuest(match.title, { keepUndo: true, page: target ?? mapName });
+                            }}
+                          >
+                            {match.title}
+                            {match.map && <span className="muted small"> · switch to {match.map}</span>}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+
+            {visibleSelectedQuests.length > 0 && (
+              <ul className="chosen">
+                {visibleSelectedQuests.map((title) => (
+                  <li
+                    key={title}
+                    className={activeWiki === title ? 'active' : ''}
+                    style={{ borderLeft: `4px solid ${questAccent(taskNameFor(title))}` }}
+                  >
+                    <button className="chosen-name" onClick={() => setActiveWiki(title)}>{title}</button>
+                    {/* Adding something you have already done, or cannot start
+                        yet, is worth saying rather than silently routing it. */}
+                    {standingFor(title) === 'completed' && (
+                      <span className="tag" title="Already marked finished in your progress">done</span>
+                    )}
+                    {standingFor(title) === 'locked' && (
+                      <span className="tag" title="A prerequisite quest is not finished yet">locked</span>
+                    )}
+                    {standingFor(title) === 'too-low-level' && (
+                      <span className="tag" title="Your level (set under Your progress) is below this quest's requirement">level</span>
+                    )}
+                    {unroutable.includes(title) && (
+                      <span className="tag" title="No published objective coordinates on this map, so it is not drawn">no coords</span>
+                    )}
+                    <button
+                      className="chosen-remove"
+                      onClick={() => removeQuest(title)}
+                      title={`Remove ${title}`}
+                      aria-label={`Remove ${title}`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {gameLogs.lastImport && (
+              <p className="backfill-note small">
+                Marked {gameLogs.lastImport.count} quest{gameLogs.lastImport.count === 1 ? '' : 's'} finished
+                from the game's logs.{' '}
+                <button className="muted-button" onClick={() => setMode('settings')}>Details</button>
+                {' · '}
+                <button className="muted-button" onClick={gameLogs.dismissImport}>OK</button>
+              </p>
+            )}
+
+            {gameLogs.wipePrompt && (
+              <div className="catch-up">
+                <p className="small">
+                  {gameLogs.wipePrompt.manual ? 'Counting quests from ' : 'The game logs show a wipe on '}
+                  <strong>{new Date(gameLogs.wipePrompt.at).toLocaleDateString()}</strong>.
+                  {' '}{gameLogs.wipePrompt.extra} quest{gameLogs.wipePrompt.extra === 1 ? ' is' : 's are'} marked
+                  finished here that the game has not seen you finish since.
+                </p>
+                <div className="catch-up-actions">
+                  <button className="primary" onClick={() => gameLogs.resolveWipe(true)}>Match the game</button>
+                  <button onClick={() => gameLogs.resolveWipe(false)}>Keep mine</button>
+                </div>
+              </div>
+            )}
+
+            {lastBackfill && (
+              <p className="backfill-note small">
+                Marked the {lastBackfill.ids.length} quest{lastBackfill.ids.length === 1 ? '' : 's'} before{' '}
+                {lastBackfill.title} as finished.{' '}
+                <button className="muted-button" onClick={undoBackfill}>Undo</button>
+              </p>
+            )}
+
+            {selectedQuests.length > 1 && (
+              <p className="muted small">Routing {selectedQuests.length} quests together.</p>
+            )}
+            {questIndex && wikiMapName && selectedQuests.length === 0 && (
+              <p className="muted small">
+                Showing {mapQuestTitles.length} of {questTitles.length} quests: those on {wikiMapName}.
+                Add several to route them in one run.
+              </p>
+            )}
+            {loadingQuest && <p className="muted small">Loading quest...</p>}
+            {wikiError && <p className="error small">{wikiError}</p>}
+          </div>
+          )}
+
+          {mode === 'quests' && activeWiki && wikiByTitle[activeWiki] && (
+            <RequirementsPanel
+              wiki={wikiByTitle[activeWiki]}
+              task={tasks.find((t) => normalize(t.normalizedName) === normalize(activeWiki)) ?? null}
+            />
+          )}
+
           {apiError && (
             <div className="panel warn">
               <h2>Objective data unavailable</h2>
@@ -1053,11 +1250,61 @@ export default function App() {
             </div>
           )}
 
-          {activeWiki && wikiByTitle[activeWiki] && (
-            <RequirementsPanel
-              wiki={wikiByTitle[activeWiki]}
-              task={tasks.find((t) => normalize(t.normalizedName) === normalize(activeWiki)) ?? null}
-            />
+          {mode === 'quests' && (
+            <Fold title="Your progress" meta={`${progress.completed.size} finished`} storageKey="progress">
+              <ProgressPanel
+                progress={progress}
+                questTitles={questTitles}
+                idByName={taskIndex.idByName}
+                requires={taskIndex.requires}
+                mapName={wikiMapName || mapName}
+                availableTitles={availableTitles}
+                indexing={!questIndex}
+                hideFinished={hideFinished}
+                onCatchUp={(ids) => updateProgress(withCompleted(progress, ids, true))}
+                onUnmark={(id) => updateProgress(withCompleted(progress, [id], false))}
+                onAddAvailable={addAvailableQuests}
+                onHideFinished={setHideFinished}
+                onSetLevel={(level) => updateProgress({ ...progress, playerLevel: level })}
+                onImport={importProgress}
+                onReset={() => updateProgress(emptyProgress())}
+              />
+            </Fold>
+          )}
+
+          {placedLoot.length > 0 && (
+            <Fold
+              title="Loot"
+              meta={showLoot ? `${visibleLoot.length} of ${placedLoot.length} shown` : 'off'}
+              storageKey="loot"
+              defaultOpen={false}
+            >
+              <LootPanel
+                containers={placedLoot}
+                shown={visibleLoot}
+                enabled={showLoot}
+                onEnabled={setShowLoot}
+                radius={lootRadius}
+                onRadius={setLootRadius}
+                hasRoute={Boolean(route)}
+                hidden={hiddenLoot}
+                onToggleName={(name) => setHiddenLoot((current) =>
+                  current.includes(name) ? current.filter((n) => n !== name) : [...current, name])}
+                density={lootDensity}
+                onDensity={setLootDensity}
+              />
+            </Fold>
+          )}
+
+          <Fold
+            title="Co-op"
+            meta={coop.code ? `In run ${coop.code}` : 'Not in a run'}
+            storageKey="coop"
+            defaultOpen={Boolean(coop.code)}
+          >
+            <CoopPanel run={coop} />
+          </Fold>
+          </>
           )}
         </aside>
 
@@ -1138,7 +1385,9 @@ export default function App() {
             );
           })}
 
-          {mode === 'quests' && route && <RouteList route={route} />}
+          {mode === 'quests' && route && (
+            <RouteList route={route} selectedOrder={selectedOrder} onSelect={setSelectedOrder} />
+          )}
 
           {mode === 'quests' && selectedQuests.length > 0 && (
             <div className="panel finish-panel">

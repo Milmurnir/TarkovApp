@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { missingPrerequisites, type Progress } from '../lib/progress';
+import { useEscape } from '../lib/useEscape';
 
 interface Props {
   /** Quests in the run, with the id a write needs; null when unknown. */
@@ -28,6 +29,7 @@ interface Props {
 export default function FinishRunDialog({
   entries, progress, requires, shared, multiMapRemaining, onSubmit, onClose,
 }: Props) {
+  useEscape(onClose);
   const [done, setDone] = useState<Record<string, boolean>>({});
   const [backfill, setBackfill] = useState<Record<string, boolean>>({});
   /** Unlocks a multi-map quest's checkbox despite the app not having seen every leg. */

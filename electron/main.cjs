@@ -10,6 +10,7 @@ const {
   registerHotkeyIpc, unregisterPriceCheckHotkey,
 } = require('./priceCheck.cjs');
 const { createTrayIcon } = require('./trayIcon.cjs');
+const { registerGameLogIpc } = require('./gameLogs.cjs');
 
 /** Chosen to be an unlikely collision; see startServer for why it is fixed. */
 const DEFAULT_PORT = 47821;
@@ -130,6 +131,7 @@ function refreshTray() {
 
 registerUpdateIpc(() => mainWindow);
 registerStoreIpc();
+registerGameLogIpc(() => mainWindow);
 
 app.whenReady().then(createWindow);
 

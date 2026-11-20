@@ -15,6 +15,8 @@ interface Props {
   requires: Record<string, string[]>;
   mapName: string;
   availableTitles: string[];
+  /** True while the per-map quest index is still being built. */
+  indexing: boolean;
   hideFinished: boolean;
   onCatchUp: (ids: string[]) => void;
   /** Undo a single quest, for when a bulk guess got one wrong. */
@@ -38,7 +40,7 @@ function normalize(value: string): string {
  * too. Ticking a few hundred boxes by hand is not a feature.
  */
 export default function ProgressPanel({
-  progress, questTitles, idByName, requires, mapName, availableTitles, hideFinished,
+  progress, questTitles, idByName, requires, mapName, availableTitles, indexing, hideFinished,
   onCatchUp, onUnmark, onAddAvailable, onHideFinished, onSetLevel, onImport, onReset,
 }: Props) {
   const [query, setQuery] = useState('');
@@ -179,7 +181,9 @@ export default function ProgressPanel({
       </section>
 
       <button className="primary progress-add" onClick={onAddAvailable} disabled={availableTitles.length === 0}>
-        {availableTitles.length === 0
+        {indexing
+          ? `Finding ${mapName} quests...`
+          : availableTitles.length === 0
           ? `Nothing available on ${mapName}`
           : `Add ${availableTitles.length} available quest${availableTitles.length === 1 ? '' : 's'}`}
       </button>

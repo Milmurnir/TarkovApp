@@ -17,12 +17,18 @@ export default function CurrentObjective({ route, selectedOrder, onSelect }: Pro
     return (
       <div className="panel">
         <h2>Current objective</h2>
-        <p className="muted small">Click a dot on the map to set what you are doing now.</p>
+        <p className="muted small">
+          Click a dot on the map or a step in the route to set what you are doing now, or press →.
+        </p>
+        {route.stops.length > 0 && (
+          <button onClick={() => onSelect(route.stops[0].order)}>Start the route</button>
+        )}
       </div>
     );
   }
 
   const current = route.stops[index];
+  const previous = route.stops[index - 1] ?? null;
   const next = route.stops[index + 1] ?? null;
   const remaining = route.totalDistance - current.cumulativeDistance;
   const accent = current.questName ? questColor(current.questName) : null;
@@ -34,7 +40,27 @@ export default function CurrentObjective({ route, selectedOrder, onSelect }: Pro
     >
       <div className="panel-head">
         <h2>Current objective</h2>
-        <button onClick={() => onSelect(null)}>Clear</button>
+        <div className="current-nav">
+          <span className="muted small">Stop {index + 1} of {route.stops.length}</span>
+          <button
+            onClick={() => previous && onSelect(previous.order)}
+            disabled={!previous}
+            title="Previous stop (←)"
+            aria-label="Previous stop"
+          >
+            ← Prev
+          </button>
+          <button
+            className="primary"
+            onClick={() => next && onSelect(next.order)}
+            disabled={!next}
+            title="Next stop (→)"
+            aria-label="Next stop"
+          >
+            Next →
+          </button>
+          <button onClick={() => onSelect(null)}>Clear</button>
+        </div>
       </div>
 
       <div className="current-body">

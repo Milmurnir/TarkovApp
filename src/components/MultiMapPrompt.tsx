@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useEscape } from '../lib/useEscape';
 
 interface Props {
   /** Quests just added whose objectives are genuinely tied to more than one map. */
@@ -15,6 +16,8 @@ interface Props {
  */
 export default function MultiMapPrompt({ entries, mapDisplayName, onSubmit }: Props) {
   const [included, setIncluded] = useState<Record<string, boolean>>({});
+  // Esc means the same as clicking outside: "Not this run".
+  useEscape(() => onSubmit([]));
 
   function submit() {
     onSubmit(entries.filter((entry) => included[entry.title]).map((entry) => entry.title));

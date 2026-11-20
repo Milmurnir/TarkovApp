@@ -37,6 +37,20 @@ contextBridge.exposeInMainWorld('priceCheck', {
   setHotkey: (accelerator) => ipcRenderer.invoke('pricecheck:set-hotkey', accelerator),
 });
 
+/**
+ * Quest progress read from the game's own log files. The renderer can ask for
+ * a scan or a folder picker, never read a path of its own choosing.
+ */
+contextBridge.exposeInMainWorld('gameLogs', {
+  scan: () => ipcRenderer.invoke('gamelogs:scan'),
+  pickFolder: () => ipcRenderer.invoke('gamelogs:pick-folder'),
+  onEvents: (callback) => {
+    const handler = (_event, events) => callback(events);
+    ipcRenderer.on('gamelogs:events', handler);
+    return () => ipcRenderer.removeListener('gamelogs:events', handler);
+  },
+});
+
 contextBridge.exposeInMainWorld('appUpdates', {
   info: () => ipcRenderer.invoke('update:info'),
   check: () => ipcRenderer.invoke('update:check'),

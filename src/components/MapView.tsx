@@ -57,6 +57,8 @@ export default function MapView({
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  /** Armed by the "Set spawn" button: the next plain click drops the spawn. */
+  const [placing, setPlacing] = useState(false);
   const dragging = useRef<{ x: number; y: number } | null>(null);
   const pressOrigin = useRef<{ x: number; y: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -129,31 +131,61 @@ export default function MapView({
     dragging.current = null;
     pressOrigin.current = null;
     if (!origin || !onPickSpawn) return;
-    // Left-click still pans and clicks markers; only the middle button drops a
-    // spawn, so an ordinary click never relocates it by accident.
-    if (event.button !== 1) return;
+    // Left-click normally pans and clicks markers, so an ordinary click never
+    // relocates the spawn by accident -- unless "Set spawn" was armed first.
+    // Middle-click always drops it; right-click does too (see onContextMenu),
+    // for touchpads that have no middle button.
+    const armedLeft = placing && event.button === 0;
+    if (event.button !== 1 && !armedLeft) return;
 
     // Ignore the pointer-up that ends a pan.
     const travel = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
     if (travel > DRAG_THRESHOLD) return;
 
-    const local = toSvgPoint(event.clientX, event.clientY);
+    placeSpawnAt(event.clientX, event.clientY);
+  }
+
+  function placeSpawnAt(clientX: number, clientY: number) {
+    if (!onPickSpawn) return;
+    const local = toSvgPoint(clientX, clientY);
     if (!local) return;
     onPickSpawn(svgToGame(local, projection, viewBox));
+    setPlacing(false);
   }
+
+  // Esc backs out of placing mode without dropping anything.
+  useEffect(() => {
+    if (!placing) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setPlacing(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [placing]);
 
   return (
     <div className="map-shell">
       <div className="map-controls">
-        <button onClick={() => setZoom((z) => Math.min(8, z * 1.3))}>+</button>
-        <button onClick={() => setZoom((z) => Math.max(0.5, z / 1.3))}>−</button>
+        <button aria-label="Zoom in" title="Zoom in" onClick={() => setZoom((z) => Math.min(8, z * 1.3))}>+</button>
+        <button aria-label="Zoom out" title="Zoom out" onClick={() => setZoom((z) => Math.max(0.5, z / 1.3))}>−</button>
         <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
-        <span className="hint">middle-click to set your spawn · ctrl+scroll to zoom · drag to pan</span>
+        {onPickSpawn && (
+          <button
+            className={placing ? 'primary' : ''}
+            aria-pressed={placing}
+            onClick={() => setPlacing((p) => !p)}
+          >
+            {placing ? 'Click where you spawned… (Esc)' : 'Set spawn'}
+          </button>
+        )}
+        <span className="hint">right- or middle-click sets spawn · ctrl+scroll to zoom · drag to pan</span>
       </div>
 
       <div
-        className="map-viewport"
+        className={placing ? 'map-viewport placing' : 'map-viewport'}
         ref={viewportRef}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          placeSpawnAt(event.clientX, event.clientY);
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

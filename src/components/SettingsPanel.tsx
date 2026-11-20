@@ -2,17 +2,143 @@ import { useEffect, useState } from 'react';
 import type { Settings } from '../lib/settings';
 import { acceleratorFromEvent, formatAccelerator } from '../lib/hotkey';
 import { priceCheckBridge, type HotkeyState } from '../lib/priceCheckBridge';
+import type { GameLogSync } from '../lib/useGameLogSync';
+
+/** "2026-08-01" for a date input, from ms since epoch, in local time. */
+function toDateInput(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Reading progress from the game's logs. Explains itself in the two cases where
+ * it cannot run -- a plain browser, and a desktop shell from before this
+ * existed, which only a new installer fixes.
+ */
+function GameLogsSection({ settings, onChange, gameLogs }: Props) {
+  const [folderError, setFolderError] = useState<string | null>(null);
+
+  if (!gameLogs.available) {
+    return (
+      <section className="section">
+        <h3>Progress from the game</h3>
+        <p className="muted small">
+          The desktop app can read your finished quests from Tarkov's own log files. This needs the
+          latest installer — the in-app update cannot add it.
+        </p>
+      </section>
+    );
+  }
+
+  const { scan } = gameLogs;
+
+  return (
+    <section className="section">
+      <h3>Progress from the game</h3>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={settings.gameLogSync}
+          onChange={(event) => onChange({ gameLogSync: event.target.checked })}
+        />
+        Read finished quests from Tarkov's log files
+      </label>
+      <p className="muted small">
+        Only reads the text logs the game writes for itself — nothing touches the game while it
+        runs. Quests you turn in are ticked off here within a few seconds.
+      </p>
+
+      {settings.gameLogSync && (
+        <>
+          {gameLogs.scanning && <p className="small muted">Reading logs...</p>}
+          {!gameLogs.scanning && scan && !scan.ok && (
+            <p className="small error">Could not find the game's Logs folder. Choose it below.</p>
+          )}
+          {!gameLogs.scanning && scan?.ok && (
+            <dl className="facts">
+              <dt>Folder</dt>
+              <dd className="small" title={scan.dir ?? ''}>{scan.dir}</dd>
+              <dt>Sessions</dt>
+              <dd>
+                {scan.sessions}
+                {scan.firstSession ? ` since ${new Date(scan.firstSession).toLocaleDateString()}` : ''}
+              </dd>
+              <dt>Last wipe</dt>
+              <dd>
+                {gameLogs.detectedWipe
+                  ? new Date(gameLogs.detectedWipe).toLocaleDateString()
+                  : 'none in these logs'}
+              </dd>
+              <dt>Finished</dt>
+              <dd>{gameLogs.finishedInLogs} quests this wipe</dd>
+            </dl>
+          )}
+
+          <label className="level-row">
+            <span className="muted small">Count quests since</span>
+            <input
+              type="date"
+              value={settings.gameLogSince ?? ''}
+              max={toDateInput(Date.now())}
+              onChange={(event) => onChange({ gameLogSince: event.target.value || null })}
+            />
+            {settings.gameLogSince && (
+              <button className="muted-button" onClick={() => onChange({ gameLogSince: null })}>Auto</button>
+            )}
+          </label>
+          <p className="muted small">
+            {settings.gameLogSince
+              ? 'Using your date instead of the wipe found in the logs.'
+              : 'Worked out from the logs. After a prestige, set it to that day to start over.'}
+          </p>
+
+          {gameLogs.wipePrompt && (
+            <div className="catch-up">
+              <p className="small">
+                {gameLogs.wipePrompt.extra} quest{gameLogs.wipePrompt.extra === 1 ? ' is' : 's are'} marked
+                finished here that the game has not seen you finish since{' '}
+                {new Date(gameLogs.wipePrompt.at).toLocaleDateString()}.
+              </p>
+              <div className="catch-up-actions">
+                <button className="primary" onClick={() => gameLogs.resolveWipe(true)}>Match the game</button>
+                <button onClick={() => gameLogs.resolveWipe(false)}>Keep mine</button>
+              </div>
+            </div>
+          )}
+
+          <div className="share-actions">
+            <button onClick={gameLogs.syncNow} disabled={gameLogs.scanning}>Sync now</button>
+            <button
+              onClick={async () => {
+                setFolderError(null);
+                const problem = await gameLogs.pickFolder();
+                if (problem === 'not-logs') setFolderError('That folder has no Tarkov logs in it.');
+              }}
+            >
+              Choose folder...
+            </button>
+          </div>
+          {folderError && <p className="error small">{folderError}</p>}
+        </>
+      )}
+    </section>
+  );
+}
 
 interface Props {
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
+  gameLogs: GameLogSync;
 }
 
-/** App preferences. Currently the map icon size and the price-check hotkey; more belong here as they show up. */
-export default function SettingsPanel({ settings, onChange }: Props) {
+/** App preferences: game-log sync, map icon size, the price-check hotkey, and the rest as they show up. */
+export default function SettingsPanel({ settings, onChange, gameLogs }: Props) {
   return (
     <div className="panel">
       <h2>Settings</h2>
+
+      <GameLogsSection settings={settings} onChange={onChange} gameLogs={gameLogs} />
 
       <section className="section">
         <h3>Route icon size</h3>
@@ -33,6 +159,21 @@ export default function SettingsPanel({ settings, onChange }: Props) {
       </section>
 
       <PriceCheckHotkeySection />
+
+      <section className="section">
+        <h3>Keyboard</h3>
+        <p className="muted small">
+          ← / → step through the route's stops while you are not typing in a field.
+          In the quest search, ↑ / ↓ pick a match and Enter adds it.
+        </p>
+      </section>
+
+      <section className="section">
+        <h3>About</h3>
+        <p className="muted small">
+          Quests from the EFT wiki · objective coordinates from json.tarkov.dev · spawns from SPT.
+        </p>
+      </section>
     </div>
   );
 }
