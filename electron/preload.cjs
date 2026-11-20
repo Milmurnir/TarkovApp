@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('appUpdates', {
   info: () => ipcRenderer.invoke('update:info'),
   check: () => ipcRenderer.invoke('update:check'),
   download: () => ipcRenderer.invoke('update:download'),
+  downloadApp: () => ipcRenderer.invoke('update:download-app'),
   restart: () => ipcRenderer.invoke('update:restart'),
   openRelease: (url) => ipcRenderer.invoke('update:open-release', url),
   onProgress: (callback) => {

@@ -1,5 +1,10 @@
 'use strict';
 
+// A copy started only to swap a downloaded update into place (see
+// selfUpdate.cjs) must not open windows, bind the port or touch anything else.
+const selfUpdate = require('./selfUpdate.cjs');
+if (selfUpdate.finishUpdateIfAsked()) return;
+
 const { app, BrowserWindow, Tray, Menu, shell } = require('electron');
 const path = require('path');
 const { startServer } = require('./server.cjs');
@@ -133,7 +138,17 @@ registerUpdateIpc(() => mainWindow);
 registerStoreIpc();
 registerGameLogIpc(() => mainWindow);
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // A whole-app update downloaded last session goes in before anything opens:
+  // the new copy swaps itself in and starts the app again.
+  const staged = selfUpdate.stagedUpdate();
+  if (staged) {
+    selfUpdate.handOff(staged);
+    return;
+  }
+  selfUpdate.cleanUpLater();
+  createWindow();
+});
 
 app.on('activate', () => {
   if (mainWindow) { mainWindow.show(); mainWindow.focus(); }

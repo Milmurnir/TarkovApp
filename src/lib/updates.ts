@@ -27,6 +27,10 @@ export interface UpdateCheck {
   /** The packaged app itself, when the release attached one -- what "reinstall" actually downloads. */
   appAssetUrl?: string | null;
   appAssetSize?: number;
+  /** The new shell can be downloaded and swapped in by the app itself (shell 6+). */
+  canSelfUpdate?: boolean;
+  /** That whole-app update is already downloaded and only needs a restart. */
+  selfUpdateStaged?: boolean;
   error?: string;
 }
 
@@ -45,6 +49,8 @@ export interface AppUpdates {
   info: () => Promise<UpdateInfo>;
   check: () => Promise<UpdateCheck>;
   download: () => Promise<UpdateResult>;
+  /** Absent on shells older than 6, which can only point at a manual download. */
+  downloadApp?: () => Promise<UpdateResult>;
   restart: () => Promise<void>;
   openRelease: (url: string) => Promise<void>;
   onProgress: (callback: (progress: DownloadProgress) => void) => () => void;

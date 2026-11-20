@@ -75,31 +75,66 @@ function decompress(entry) {
 }
 
 /**
- * Extracts every file into `targetDir`. Entry names are treated as hostile:
- * anything absolute or climbing out of the target is rejected outright.
+ * Where an entry may be written, or null for a folder entry. Entry names are
+ * treated as hostile: anything absolute or climbing out of the target is
+ * rejected outright.
  */
+function destinationFor(root, entry) {
+  // Some zip writers (older PowerShell among them) use backslashes.
+  const name = entry.name.replace(/\\/g, '/');
+  if (name.endsWith('/')) return null;
+  if (name.startsWith('/') || /^[a-zA-Z]:/.test(name) || name.split('/').includes('..')) {
+    throw new Error(`Refusing to extract unsafe path: ${entry.name}`);
+  }
+
+  const destination = path.join(root, name);
+  if (destination !== root && !destination.startsWith(root + path.sep)) {
+    throw new Error(`Refusing to extract outside the target: ${entry.name}`);
+  }
+  return { name, destination };
+}
+
+/** Extracts every file into `targetDir`. Fine for a ~1 MB UI bundle. */
 function extractZip(buffer, targetDir) {
   const root = path.resolve(targetDir);
   const written = [];
 
   for (const entry of readEntries(buffer)) {
-    // Some zip writers (older PowerShell among them) use backslashes.
-    const name = entry.name.replace(/\\/g, '/');
-    if (name.endsWith('/')) continue;
-    if (name.startsWith('/') || /^[a-zA-Z]:/.test(name) || name.split('/').includes('..')) {
-      throw new Error(`Refusing to extract unsafe path: ${entry.name}`);
-    }
-
-    const destination = path.join(root, name);
-    if (destination !== root && !destination.startsWith(root + path.sep)) {
-      throw new Error(`Refusing to extract outside the target: ${entry.name}`);
-    }
-
-    fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.writeFileSync(destination, decompress(entry));
-    written.push(name);
+    const target = destinationFor(root, entry);
+    if (!target) continue;
+    fs.mkdirSync(path.dirname(target.destination), { recursive: true });
+    fs.writeFileSync(target.destination, decompress(entry));
+    written.push(target.name);
   }
   return written;
 }
 
-module.exports = { extractZip };
+const inflateRaw = (raw) => new Promise((resolve, reject) => {
+  zlib.inflateRaw(raw, (error, result) => (error ? reject(error) : resolve(result)));
+});
+
+/**
+ * Same as extractZip, but inflates on libuv's thread pool and writes
+ * asynchronously. The whole packaged app is ~140 MB with a 220 MB exe inside;
+ * done synchronously that froze the main process -- and every window with it
+ * -- for over ten seconds in the middle of a background update.
+ */
+async function extractZipAsync(buffer, targetDir) {
+  const root = path.resolve(targetDir);
+  const written = [];
+
+  for (const entry of readEntries(buffer)) {
+    const target = destinationFor(root, entry);
+    if (!target) continue;
+    let data;
+    if (entry.method === 0) data = entry.raw;
+    else if (entry.method === 8) data = await inflateRaw(entry.raw);
+    else throw new Error(`Unsupported zip compression method ${entry.method} in ${entry.name}.`);
+    await fs.promises.mkdir(path.dirname(target.destination), { recursive: true });
+    await fs.promises.writeFile(target.destination, data);
+    written.push(target.name);
+  }
+  return written;
+}
+
+module.exports = { extractZip, extractZipAsync };

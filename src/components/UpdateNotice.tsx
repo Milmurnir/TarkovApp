@@ -24,9 +24,18 @@ export default function UpdateNotice() {
   // before that state update has actually landed.
   const install = useCallback(async (target: UpdateCheck | null) => {
     if (!bridge || !target) return;
+    // Already downloaded last session and waiting on a restart.
+    if (target.selfUpdateStaged) {
+      installed.current = true;
+      setPhase('ready');
+      return;
+    }
+    // A new shell, on a shell that can swap itself: the whole app (~140 MB)
+    // downloads in the background like a bundle would, and goes in on restart.
+    const wholeApp = Boolean(target.requiresReinstall && target.canSelfUpdate && bridge.downloadApp);
     setPhase('downloading');
-    setProgress({ received: 0, total: target.size ?? 0 });
-    const outcome = await bridge.download();
+    setProgress({ received: 0, total: (wholeApp ? target.appAssetSize : target.size) ?? 0 });
+    const outcome = wholeApp && bridge.downloadApp ? await bridge.downloadApp() : await bridge.download();
 
     if (!outcome.installed) {
       setPhase('error');
@@ -56,8 +65,9 @@ export default function UpdateNotice() {
     }
     if (found.available) {
       setPhase('offered');
-      if (found.requiresReinstall) {
-        // Cannot be automated: a human has to actually go get the installer.
+      if (found.requiresReinstall && !found.canSelfUpdate && !found.selfUpdateStaged) {
+        // This build cannot swap itself (running from source, no app zip on
+        // the release, or a swap that already failed): a human has to go get it.
         setOpen(true);
       } else {
         // Downloads quietly in the background -- no click needed, and no
@@ -139,19 +149,26 @@ export default function UpdateNotice() {
               <p className="small">
                 <strong>v{result.version}</strong>
                 <span className="muted"> · you have v{result.currentVersion}</span>
-                {result.size ? <span className="muted"> · {formatSize(result.size)}</span> : null}
+                {(() => {
+                  const bytes = result.requiresReinstall ? result.appAssetSize : result.size;
+                  return bytes ? <span className="muted"> · {formatSize(bytes)}</span> : null;
+                })()}
               </p>
             )}
 
             {phase === 'error' && <p className="small error">{message}</p>}
 
             {phase === 'ready' && (
-              <p className="small">Restart the app to start using v{result?.version}.</p>
+              <p className="small">
+                {result?.requiresReinstall
+                  ? `Restart to install v${result?.version}. The app closes, replaces itself and opens again on its own — give it a few seconds. Closing it any other way installs it on the next start.`
+                  : `Restart the app to start using v${result?.version}.`}
+              </p>
             )}
 
             {/* A shell change cannot ride along in a bundle; say so plainly
                 rather than downloading something that would not take effect. */}
-            {phase === 'offered' && result?.requiresReinstall && (
+            {phase === 'offered' && result?.requiresReinstall && !result.canSelfUpdate && (
               <p className="small">
                 This release changes the app itself, not just its interface, so the in-app update
                 cannot deliver it. Download the new version and install it over this one — your
@@ -174,7 +191,7 @@ export default function UpdateNotice() {
             )}
 
             <div className="modal-actions">
-              {phase === 'offered' && result?.requiresReinstall && (
+              {phase === 'offered' && result?.requiresReinstall && !result.canSelfUpdate && (
                 result.appAssetUrl ? (
                   <button onClick={() => bridge.openRelease(result.appAssetUrl!)}>
                     Download app{result.appAssetSize ? ` (${formatSize(result.appAssetSize)})` : ''}
@@ -191,6 +208,9 @@ export default function UpdateNotice() {
                 <button className="primary" onClick={() => bridge.restart()}>Restart now</button>
               )}
               {phase === 'error' && <button onClick={() => check(true)}>Try again</button>}
+              {phase === 'error' && result?.requiresReinstall && result.appAssetUrl && (
+                <button onClick={() => bridge.openRelease(result.appAssetUrl!)}>Download app instead</button>
+              )}
               <button onClick={() => setOpen(false)} disabled={phase === 'downloading'}>
                 {phase === 'ready' ? 'Later' : 'Close'}
               </button>

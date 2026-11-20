@@ -9,17 +9,20 @@
  * downloads the bundle into its user-data folder and serves that instead of the
  * one it shipped with. No installer, no signing, ~1 MB per update.
  *
- * What this cannot update is the shell itself (main process, local server,
- * preload). A release that needs a newer shell says so with a `requires-shell:`
- * line in its notes, and the app then asks the user to reinstall rather than
- * pretending an update will do.
+ * A release that needs a newer shell (main process, local server, preload)
+ * says so with a `requires-shell:` line in its notes. Since shellVersion 6 the
+ * app then downloads the release's packaged app instead and swaps itself out
+ * on the next restart (selfUpdate.cjs). Only when that cannot work -- running
+ * from source, no app zip attached, or a swap that already failed once -- does
+ * it fall back to asking the user to reinstall.
  */
 
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const { app, ipcMain, shell } = require('electron');
-const { extractZip } = require('./unzip.cjs');
+const { extractZip, extractZipAsync } = require('./unzip.cjs');
+const selfUpdate = require('./selfUpdate.cjs');
 
 const config = require('./update-config.json');
 const appPackage = require('../package.json');
@@ -29,6 +32,8 @@ const SHELL_VERSION = Number(appPackage.shellVersion) || 1;
 
 const USER_AGENT = `TarkovQuestRouter/${app.getVersion()} (desktop app)`;
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
+/** The packaged app is ~140 MB zipped; anything far past that is not ours. */
+const MAX_APP_BYTES = 600 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 /** Only these hosts are ever downloaded from. */
 const ALLOWED_HOSTS = new Set([
@@ -41,6 +46,8 @@ const statePath = () => path.join(uiDir(), 'state.json');
 
 /** The update the last check found, so the renderer never supplies a URL. */
 let pending = null;
+/** A whole-app update the last check found, when this build can install it itself. */
+let pendingApp = null;
 
 function readState() {
   try {
@@ -186,11 +193,23 @@ async function checkForUpdate() {
 
   pending = newer && asset ? { version, url: asset.browser_download_url } : null;
 
+  const needsNewShell = newer && (needsShell > SHELL_VERSION || !asset);
+  // Installed by swapping the whole app on restart -- unless this is not a
+  // packaged build, or this exact version already failed to swap in once.
+  pendingApp = needsNewShell && appAsset && selfUpdate.canSelfUpdate() && selfUpdate.failedVersion() !== version
+    ? { version, url: appAsset.browser_download_url, size: appAsset.size }
+    : null;
+  const staged = selfUpdate.stagedUpdate();
+
   return {
     configured: true,
     available: newer,
     // A newer shell cannot be delivered as a bundle: the user has to reinstall.
-    requiresReinstall: newer && (needsShell > SHELL_VERSION || !asset),
+    requiresReinstall: needsNewShell,
+    /** The new shell can be downloaded and swapped in by the app itself. */
+    canSelfUpdate: Boolean(pendingApp),
+    /** That swap is already downloaded and waits only for a restart. */
+    selfUpdateStaged: Boolean(staged && staged.version === version),
     version,
     currentVersion: current,
     notes,
@@ -246,6 +265,87 @@ async function downloadUpdate(onProgress) {
   return { installed: true, version };
 }
 
+/** Streams a download to disk, so a 140 MB app zip never sits in memory twice. */
+async function downloadToFile(url, file, onProgress) {
+  const response = await request(url);
+  const total = Number(response.headers['content-length']) || 0;
+  if (total > MAX_APP_BYTES) {
+    response.destroy();
+    throw new Error('The update is larger than expected; refusing it.');
+  }
+  await new Promise((resolve, reject) => {
+    const out = fs.createWriteStream(file);
+    let received = 0;
+    response.on('data', (chunk) => {
+      received += chunk.length;
+      if (received > MAX_APP_BYTES) {
+        response.destroy(new Error('The update is larger than expected; refusing it.'));
+        return;
+      }
+      if (onProgress) onProgress(received, total);
+    });
+    response.on('error', reject);
+    out.on('error', reject);
+    out.on('finish', resolve);
+    response.pipe(out);
+  });
+}
+
+/** The packaged exe inside an unpacked app zip: at its top level, or one folder down. */
+function findExe(dir, exeName) {
+  if (fs.existsSync(path.join(dir, exeName))) return path.join(dir, exeName);
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const candidate = path.join(dir, entry.name, exeName);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Downloads and unpacks the release's whole app into userData/app-update, ready
+ * to be swapped in on the next restart. Nothing about the running app changes.
+ */
+async function downloadAppUpdate(onProgress) {
+  if (!pendingApp) throw new Error('No app update is ready to install. Check again first.');
+  const { version, url } = pendingApp;
+  const root = selfUpdate.updateRoot();
+  const zipFile = path.join(root, `${version}.zip`);
+  const staging = path.join(root, `${version}.part`);
+  const target = path.join(root, version);
+  const exeName = path.basename(process.execPath);
+
+  selfUpdate.withoutAsar(() => {
+    fs.mkdirSync(root, { recursive: true });
+    fs.rmSync(staging, { recursive: true, force: true });
+  });
+
+  try {
+    await downloadToFile(url, zipFile, onProgress);
+    const archive = await fs.promises.readFile(zipFile);
+    // Async so the app stays responsive while ~350 MB is written. Writing a
+    // new app.asar needs no noAsar; only the sync rm/rename below, which would
+    // otherwise look inside it, do -- and noAsar must never stay on across an
+    // await, since the local server reads the UI out of this build's own asar.
+    await fs.promises.mkdir(staging, { recursive: true });
+    await extractZipAsync(archive, staging);
+    if (!findExe(staging, exeName)) throw new Error(`The download has no ${exeName}; it is not an app build.`);
+    selfUpdate.withoutAsar(() => {
+      fs.rmSync(target, { recursive: true, force: true });
+      fs.renameSync(staging, target);
+    });
+  } catch (error) {
+    selfUpdate.withoutAsar(() => fs.rmSync(staging, { recursive: true, force: true }));
+    throw error;
+  } finally {
+    fs.rmSync(zipFile, { force: true });
+  }
+
+  selfUpdate.writeReady({ version, exe: findExe(target, exeName), stagedAt: Date.now() });
+  pendingApp = null;
+  return { installed: true, version, restartRequired: true };
+}
+
 /** Wires the renderer-facing channels. Call once, before the window is created. */
 function registerUpdateIpc(getWindow) {
   ipcMain.handle('update:info', () => ({
@@ -276,7 +376,28 @@ function registerUpdateIpc(getWindow) {
     }
   });
 
+  ipcMain.handle('update:download-app', async () => {
+    try {
+      return await downloadAppUpdate((received, total) => {
+        const window = getWindow();
+        if (window && !window.isDestroyed()) {
+          window.webContents.send('update:progress', { received, total });
+        }
+      });
+    } catch (error) {
+      return { installed: false, error: String(error.message || error) };
+    }
+  });
+
   ipcMain.handle('update:restart', () => {
+    // A staged whole-app update is applied by the new copy, which also starts
+    // the app again afterwards; otherwise an ordinary relaunch picks up a
+    // downloaded UI bundle.
+    const staged = selfUpdate.stagedUpdate();
+    if (staged) {
+      selfUpdate.handOff(staged);
+      return;
+    }
     app.relaunch();
     app.exit(0);
   });
