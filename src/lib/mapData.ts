@@ -90,7 +90,24 @@ export function toMapSpawns(spawns: MapSpawnPoint[]): MapSpawn[] {
 }
 
 /** Group spawn points by infiltration zone, which is what players recognise. */
-export function spawnZones(spawns: MapSpawnPoint[]): { infiltration: string; spawns: MapSpawnPoint[] }[] {
+export interface SpawnZone {
+  /** The game's own id for the zone, which extracts are keyed by. */
+  infiltration: string;
+  /** What to show a player: the game's ids are things like "E1_2" or "MallNW". */
+  label: string;
+  spawns: MapSpawnPoint[];
+}
+
+/** "MallNW" -> "Mall NW", "east" -> "East". */
+function tidyZoneName(name: string): string {
+  const spaced = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** A bare code like Streets' "E1_2" says nothing; named zones already do. */
+const CODED_ZONE = /^[A-Z]\d+(_\d+)?$/;
+
+export function spawnZones(spawns: MapSpawnPoint[], labels: MapLabel[] = []): SpawnZone[] {
   const groups = new Map<string, MapSpawnPoint[]>();
   for (const spawn of spawns) {
     const key = spawn.infiltration ?? spawn.zoneName ?? 'Unknown';
@@ -98,8 +115,30 @@ export function spawnZones(spawns: MapSpawnPoint[]): { infiltration: string; spa
     if (list) list.push(spawn);
     else groups.set(key, [spawn]);
   }
-  return Array.from(groups, ([infiltration, group]) => ({ infiltration, spawns: group }))
-    .sort((a, b) => a.infiltration.localeCompare(b.infiltration));
+
+  const zones = Array.from(groups, ([infiltration, group]) => {
+    let label = tidyZoneName(infiltration);
+    if (CODED_ZONE.test(infiltration) && labels.length > 0) {
+      // Named after the map label nearest the zone's centre, so a player can
+      // tell which side of the map it is without knowing the game's ids.
+      const cx = group.reduce((sum, s) => sum + s.position.x, 0) / group.length;
+      const cz = group.reduce((sum, s) => sum + s.position.z, 0) / group.length;
+      const nearest = labels.reduce((best, l) =>
+        Math.hypot(l.x - cx, l.z - cz) < Math.hypot(best.x - cx, best.z - cz) ? l : best);
+      label = `Near ${nearest.text}`;
+    }
+    return { infiltration, label, spawns: group };
+  });
+
+  // Two zones landing on the same label keep their ids to tell them apart.
+  for (const zone of zones) {
+    if (zones.some((other) => other !== zone && other.label === zone.label)) {
+      zone.label = `${zone.label} (${zone.infiltration})`;
+    }
+  }
+  // Ordered by id, not label: the chosen zone is stored and shared in co-op by
+  // its index, which must mean the same zone across versions and players.
+  return zones.sort((a, b) => a.infiltration.localeCompare(b.infiltration));
 }
 
 /**

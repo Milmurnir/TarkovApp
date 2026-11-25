@@ -19,7 +19,7 @@ const BASE = '/api/json';
 // The two are versioned together on purpose: the index is only written during a
 // full fetch, so leaving the slice cache warm across an index change would leave
 // the index empty and every quest looking unavailable.
-const CACHE_PREFIX = 'tarkov-json-slice-v9:';
+const CACHE_PREFIX = 'tarkov-json-slice-v10:';
 const GRAPH_KEY = 'tarkov-task-index-v6';
 // Loose loot is hundreds of kilobytes per map and only the loot run wants it,
 // so it lives under its own key rather than bloating every quest lookup.
@@ -38,6 +38,8 @@ export interface MapTransitInfo {
   description: string | null;
   /** normalizedName of the destination map, when the map id resolves. */
   toMap: string | null;
+  /** The destination's in-game name ("Ground Zero 21+"), for maps this app has no page for. */
+  toMapName?: string | null;
   position: Vec3;
 }
 
@@ -235,6 +237,7 @@ export async function fetchMapSlice(mapName: string, force = false): Promise<Map
       id: t.id,
       description: translate(mapText, t.description) || null,
       toMap: idToName.get(t.map) ?? null,
+      toMapName: translate(mapText, rawMaps.find((m) => m.id === t.map)?.name) || null,
       position: t.position as Vec3,
     }));
 

@@ -48,6 +48,11 @@ import { questAccent } from './lib/questColor';
 
 const DEFAULT_MAP = 'streets-of-tarkov';
 
+/** "the-lab-dark" -> "The Lab Dark": a last resort when no translated name is cached. */
+function tidyMapId(id: string): string {
+  return id.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -721,7 +726,9 @@ export default function App() {
   /** Where this map lets you walk straight into another one, e.g. Woods into Reserve. */
   const transits = useMemo(() => {
     return (api?.transits ?? []).map((transit) => {
-      const destination = maps.find((m) => m.normalizedName === transit.toMap)?.wikiName ?? transit.toMap;
+      const destination = maps.find((m) => m.normalizedName === transit.toMap)?.wikiName
+        ?? transit.toMapName
+        ?? (transit.toMap ? tidyMapId(transit.toMap) : null);
       return {
         position: transit.position,
         label: destination ? `Transit to ${destination}` : (transit.description ?? 'Transit'),
@@ -730,7 +737,7 @@ export default function App() {
     });
   }, [api, maps]);
 
-  const zones = useMemo(() => (mapData ? spawnZones(mapData.spawns) : []), [mapData]);
+  const zones = useMemo(() => (mapData ? spawnZones(mapData.spawns, mapData.labels) : []), [mapData]);
   const activeZone = zones[Math.min(zoneIndex, Math.max(0, zones.length - 1))] ?? null;
 
   /** Centre of an infiltration zone, used as the route start when offline. */
@@ -743,7 +750,7 @@ export default function App() {
     );
     return {
       ...activeZone.spawns[0],
-      zoneName: activeZone.infiltration,
+      zoneName: activeZone.label,
       position: { x: sum.x / count, y: sum.y / count, z: sum.z / count },
     };
   }, [activeZone]);
@@ -1028,7 +1035,7 @@ export default function App() {
                 >
                   {zones.map((zone, i) => (
                     <option key={zone.infiltration} value={i}>
-                      {zone.infiltration} ({zone.spawns.length} spawn points)
+                      {zone.label} ({zone.spawns.length} spawn points)
                     </option>
                   ))}
                 </select>
