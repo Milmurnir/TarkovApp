@@ -1,8 +1,13 @@
 import type { WikiQuest } from './types';
+import { cachedFetch, DAY_MS } from './cache';
 
 const WIKI = '/api/wiki';
 const LIST_CACHE_KEY = 'eft-quest-list-v1';
 const PAGE_CACHE_PREFIX = 'eft-quest-page-v5:';
+/** New quests arrive with patches; a list a few days old is still close enough. */
+const LIST_MAX_AGE_MS = 3 * DAY_MS;
+/** Wiki pages get corrected after a patch; pick those corrections up within days. */
+const PAGE_MAX_AGE_MS = 3 * DAY_MS;
 
 /** Strip wiki markup down to readable plain text. */
 export function cleanWikitext(input: string): string {
@@ -209,56 +214,46 @@ export async function wikiGet(params: Record<string, string>): Promise<any> {
   return response.json();
 }
 
-/** Every page in Category:Quests, paged through and cached locally. */
+/** Every page in Category:Quests, paged through and cached for a few days. */
 export async function fetchQuestList(force = false): Promise<string[]> {
-  if (!force) {
-    try {
-      const raw = localStorage.getItem(LIST_CACHE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed.titles) && parsed.titles.length > 0) return parsed.titles;
-      }
-    } catch { /* fall through to a fresh fetch */ }
-  }
-
-  const titles: string[] = [];
-  let cont: string | undefined;
-  // The category runs to well over a thousand pages; bound the loop defensively.
-  for (let page = 0; page < 20; page++) {
-    const params: Record<string, string> = {
-      action: 'query', list: 'categorymembers', cmtitle: 'Category:Quests',
-      cmlimit: '500', cmnamespace: '0',
-    };
-    if (cont) params.cmcontinue = cont;
-    const data = await wikiGet(params);
-    for (const member of data?.query?.categorymembers ?? []) titles.push(member.title);
-    cont = data?.continue?.cmcontinue;
-    if (!cont) break;
-  }
-
-  const unique = Array.from(new Set(titles)).sort((a, b) => a.localeCompare(b));
-  try {
-    localStorage.setItem(LIST_CACHE_KEY, JSON.stringify({ titles: unique, fetchedAt: Date.now() }));
-  } catch { /* cache is best-effort */ }
-  return unique;
+  return cachedFetch(LIST_CACHE_KEY, LIST_MAX_AGE_MS, async () => {
+    const titles: string[] = [];
+    let cont: string | undefined;
+    // The category runs to well over a thousand pages; bound the loop defensively.
+    for (let page = 0; page < 20; page++) {
+      const params: Record<string, string> = {
+        action: 'query', list: 'categorymembers', cmtitle: 'Category:Quests',
+        cmlimit: '500', cmnamespace: '0',
+      };
+      if (cont) params.cmcontinue = cont;
+      const data = await wikiGet(params);
+      for (const member of data?.query?.categorymembers ?? []) titles.push(member.title);
+      cont = data?.continue?.cmcontinue;
+      if (!cont) break;
+    }
+    const unique = Array.from(new Set(titles)).sort((a, b) => a.localeCompare(b));
+    if (unique.length === 0) throw new Error('The wiki returned no quests.');
+    return unique;
+  }, { force, keep: (titles) => Array.isArray(titles) && titles.length > 0 });
 }
 
-export async function fetchQuest(title: string): Promise<WikiQuest> {
-  const cacheKey = `${PAGE_CACHE_PREFIX}${title}`;
-  try {
-    const raw = localStorage.getItem(cacheKey);
-    if (raw) return JSON.parse(raw) as WikiQuest;
-  } catch { /* ignore and refetch */ }
+/** In-flight page fetches, so asking twice for one quest costs one request. */
+const pageRequests = new Map<string, Promise<WikiQuest>>();
 
-  const data = await wikiGet({ action: 'parse', page: title, prop: 'wikitext', redirects: '1' });
-  if (data?.error) throw new Error(data.error.info ?? `No wiki page for "${title}"`);
+export function fetchQuest(title: string): Promise<WikiQuest> {
+  const running = pageRequests.get(title);
+  if (running) return running;
+  const request = cachedFetch(`${PAGE_CACHE_PREFIX}${title}`, PAGE_MAX_AGE_MS, async () => {
+    const data = await wikiGet({ action: 'parse', page: title, prop: 'wikitext', redirects: '1' });
+    if (data?.error) throw new Error(data.error.info ?? `No wiki page for "${title}"`);
 
-  const wikitext = data?.parse?.wikitext?.['*'];
-  if (typeof wikitext !== 'string') throw new Error(`No wikitext returned for "${title}"`);
+    const wikitext = data?.parse?.wikitext?.['*'];
+    if (typeof wikitext !== 'string') throw new Error(`No wikitext returned for "${title}"`);
 
-  const parsed = parseQuestPage(data.parse.title ?? title, wikitext);
-  try { localStorage.setItem(cacheKey, JSON.stringify(parsed)); } catch { /* best-effort */ }
-  return parsed;
+    return parseQuestPage(data.parse.title ?? title, wikitext);
+  }).finally(() => pageRequests.delete(title));
+  pageRequests.set(title, request);
+  return request;
 }
 
 /** Ranked substring match: exact, then prefix, then contains. */

@@ -1,5 +1,8 @@
+import { cachedFetch, DAY_MS } from './cache';
+
 const WIKI = '/api/wiki';
 const CACHE_PREFIX = 'eft-quest-guide-v1:';
+const GUIDE_MAX_AGE_MS = 3 * DAY_MS;
 const WIKI_ORIGIN = 'https://escapefromtarkov.fandom.com';
 
 /**
@@ -78,30 +81,21 @@ function extractGuide(pageHtml: string): { html: string; images: number } | null
 }
 
 export async function fetchQuestGuide(title: string): Promise<QuestGuide | null> {
-  const cacheKey = CACHE_PREFIX + title;
-  try {
-    const raw = localStorage.getItem(cacheKey);
-    if (raw) return JSON.parse(raw) as QuestGuide;
-  } catch { /* refetch on any cache problem */ }
+  return cachedFetch(CACHE_PREFIX + title, GUIDE_MAX_AGE_MS, async () => {
+    const params = new URLSearchParams({
+      format: 'json', origin: '*', action: 'parse', page: title, prop: 'text', redirects: '1',
+    });
+    const response = await fetch(`${WIKI}?${params.toString()}`);
+    if (!response.ok) throw new Error(`Wiki request failed (${response.status})`);
 
-  const params = new URLSearchParams({
-    format: 'json', origin: '*', action: 'parse', page: title, prop: 'text', redirects: '1',
+    const data = await response.json();
+    if (data?.error) throw new Error(data.error.info ?? `No wiki page for "${title}"`);
+
+    const pageHtml = data?.parse?.text?.['*'];
+    if (typeof pageHtml !== 'string') return null;
+
+    const extracted = extractGuide(pageHtml);
+    if (!extracted) return null;
+    return { title, html: extracted.html, images: extracted.images };
   });
-  const response = await fetch(`${WIKI}?${params.toString()}`);
-  if (!response.ok) throw new Error(`Wiki request failed (${response.status})`);
-
-  const data = await response.json();
-  if (data?.error) throw new Error(data.error.info ?? `No wiki page for "${title}"`);
-
-  const pageHtml = data?.parse?.text?.['*'];
-  if (typeof pageHtml !== 'string') return null;
-
-  const extracted = extractGuide(pageHtml);
-  if (!extracted) return null;
-
-  const guide: QuestGuide = { title, html: extracted.html, images: extracted.images };
-  try {
-    localStorage.setItem(cacheKey, JSON.stringify(guide));
-  } catch { /* guides can be large; caching is best-effort */ }
-  return guide;
 }

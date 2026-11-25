@@ -3,6 +3,7 @@ import type { Settings } from '../lib/settings';
 import { acceleratorFromEvent, formatAccelerator } from '../lib/hotkey';
 import { priceCheckBridge, type HotkeyState } from '../lib/priceCheckBridge';
 import type { GameLogSync } from '../lib/useGameLogSync';
+import { clearGameDataCaches } from '../lib/cache';
 
 /** "2026-08-01" for a date input, from ms since epoch, in local time. */
 function toDateInput(ms: number): string {
@@ -126,6 +127,33 @@ function GameLogsSection({ settings, onChange, gameLogs }: Props) {
   );
 }
 
+/**
+ * Quest lists, pages and map data refresh on their own every few days. This is
+ * for right after a patch, when waiting is not an option.
+ */
+function GameDataSection() {
+  const [refreshing, setRefreshing] = useState(false);
+  return (
+    <section className="section">
+      <h3>Game data</h3>
+      <p className="muted small">
+        Quests and wiki guides refresh every few days, map data daily. After a patch, refresh now
+        to pick up new or changed quests. Your progress and current run are kept.
+      </p>
+      <button
+        disabled={refreshing}
+        onClick={() => {
+          setRefreshing(true);
+          clearGameDataCaches();
+          window.location.reload();
+        }}
+      >
+        {refreshing ? 'Refreshing...' : 'Refresh game data'}
+      </button>
+    </section>
+  );
+}
+
 interface Props {
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
@@ -167,6 +195,8 @@ export default function SettingsPanel({ settings, onChange, gameLogs }: Props) {
           In the quest search, ↑ / ↓ pick a match and Enter adds it.
         </p>
       </section>
+
+      <GameDataSection />
 
       <section className="section">
         <h3>About</h3>

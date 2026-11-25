@@ -1,6 +1,9 @@
 import { cleanWikitext, wikiGet } from './wiki';
+import { cachedFetch, DAY_MS } from './cache';
 
 const INDEX_CACHE_KEY = 'eft-quest-index-v1';
+/** Rebuilding is ~19 wiki requests, so weekly is plenty for map changes. */
+const INDEX_MAX_AGE_MS = 7 * DAY_MS;
 const BATCH_SIZE = 50;
 
 export interface QuestIndexEntry {
@@ -39,17 +42,18 @@ export async function fetchQuestIndex(
   onProgress?: (done: number, total: number) => void,
   force = false,
 ): Promise<QuestIndex> {
-  if (!force) {
-    try {
-      const raw = localStorage.getItem(INDEX_CACHE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { index: QuestIndex; count: number };
-        // Reuse only if it still covers the current quest list.
-        if (parsed.index && parsed.count >= titles.length) return parsed.index;
-      }
-    } catch { /* fall through and rebuild */ }
-  }
+  return cachedFetch(INDEX_CACHE_KEY, INDEX_MAX_AGE_MS, () => buildIndex(titles, onProgress), {
+    force,
+    // A list that gained quests since the index was built needs a rebuild,
+    // or the new ones would never be found on any map.
+    keep: (index) => titles.every((title) => title in index),
+  });
+}
 
+async function buildIndex(
+  titles: string[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<QuestIndex> {
   const index: QuestIndex = {};
 
   for (let start = 0; start < titles.length; start += BATCH_SIZE) {
@@ -80,10 +84,6 @@ export async function fetchQuestIndex(
 
     onProgress?.(Math.min(start + BATCH_SIZE, titles.length), titles.length);
   }
-
-  try {
-    localStorage.setItem(INDEX_CACHE_KEY, JSON.stringify({ index, count: titles.length }));
-  } catch { /* cache is best-effort */ }
 
   return index;
 }
