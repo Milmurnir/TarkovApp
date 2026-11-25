@@ -2,6 +2,7 @@
  * Signs the release assets so the app will install them (electron/updateSignature.cjs).
  *
  *   node scripts/sign-release.mjs          signs release/ui.zip and the app zip, whichever exist
+ *   node scripts/sign-release.mjs ui.zip   signs only the named asset(s)
  *   node scripts/sign-release.mjs --init   makes the signing key, once per release machine
  *
  * The private key lives outside the repo, in ~/.tarkov-quest-router/ (or
@@ -53,7 +54,17 @@ if (!config.publicKey) {
 }
 
 const privateKey = fs.readFileSync(keyPath, 'utf8');
-const assets = [config.asset, config.appAsset].filter(Boolean);
+// Naming the asset matters in the release scripts: signing whatever zip is
+// lying in release/ would stamp a stale one from an earlier build with this
+// version, and the app would then accept it.
+const named = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
+const known = [config.asset, config.appAsset].filter(Boolean);
+const unknown = named.filter((name) => !known.includes(name));
+if (unknown.length > 0) {
+  console.error(`Not a release asset: ${unknown.join(', ')} (expected ${known.join(' or ')}).`);
+  process.exit(1);
+}
+const assets = named.length > 0 ? named : known;
 let signed = 0;
 
 for (const name of assets) {
