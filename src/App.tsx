@@ -80,8 +80,6 @@ export default function App() {
   const [highlight, setHighlight] = useState(0);
   const [wikiByTitle, setWikiByTitle] = useState<Record<string, WikiQuest>>({});
   const [activeWiki, setActiveWiki] = useState<string | null>(restored.activeWiki);
-  const [showSnipers, setShowSnipers] = useState(true);
-  const [showTransits, setShowTransits] = useState(true);
   const [wikiError, setWikiError] = useState<string | null>(null);
   const [loadingQuest, setLoadingQuest] = useState(false);
 
@@ -95,11 +93,6 @@ export default function App() {
   const [progress, setProgress] = useState<Progress>(() => loadProgress());
   const [hideFinished, setHideFinished] = useState(restored.hideFinished);
   const [finishOpen, setFinishOpen] = useState(false);
-  const [showLoot, setShowLoot] = useState(false);
-  /** Metres from the route; null means the whole map. */
-  const [lootRadius, setLootRadius] = useState<number | null>(30);
-  const [hiddenLoot, setHiddenLoot] = useState<string[]>([]);
-  const [lootDensity, setLootDensity] = useState(1);
   const [containerNames, setContainerNames] = useState<Record<string, string>>({});
   /** Quest routing, or a raid built around one item. */
   const [mode, setMode] = useState<'quests' | 'loot' | 'settings'>('quests');
@@ -194,6 +187,9 @@ export default function App() {
       return next;
     });
   }, []);
+
+  // Map and loot layers live in settings so they survive a restart.
+  const { showSnipers, showTransits, showLoot, lootRadius, hiddenLoot, lootDensity } = settings;
 
   // A fresh install has an empty localStorage but the user-data file is still
   // there, which is what makes progress outlive replacing the app.
@@ -1001,12 +997,12 @@ export default function App() {
               </div>
             )}
             <label className="toggle">
-              <input type="checkbox" checked={showSnipers} onChange={(e) => setShowSnipers(e.target.checked)} />
+              <input type="checkbox" checked={showSnipers} onChange={(e) => updateSettings({ showSnipers: e.target.checked })} />
               Show sniper scavs ({sniperSpawns.length})
             </label>
             {transits.length > 0 && (
               <label className="toggle">
-                <input type="checkbox" checked={showTransits} onChange={(e) => setShowTransits(e.target.checked)} />
+                <input type="checkbox" checked={showTransits} onChange={(e) => updateSettings({ showTransits: e.target.checked })} />
                 Show transits ({transits.length})
               </label>
             )}
@@ -1342,15 +1338,16 @@ export default function App() {
                 containers={placedLoot}
                 shown={visibleLoot}
                 enabled={showLoot}
-                onEnabled={setShowLoot}
+                onEnabled={(enabled) => updateSettings({ showLoot: enabled })}
                 radius={lootRadius}
-                onRadius={setLootRadius}
+                onRadius={(radius) => updateSettings({ lootRadius: radius })}
                 hasRoute={Boolean(route)}
                 hidden={hiddenLoot}
-                onToggleName={(name) => setHiddenLoot((current) =>
-                  current.includes(name) ? current.filter((n) => n !== name) : [...current, name])}
+                onToggleName={(name) => updateSettings({
+                  hiddenLoot: hiddenLoot.includes(name) ? hiddenLoot.filter((n) => n !== name) : [...hiddenLoot, name],
+                })}
                 density={lootDensity}
-                onDensity={setLootDensity}
+                onDensity={(density) => updateSettings({ lootDensity: density })}
               />
             </Fold>
           )}
