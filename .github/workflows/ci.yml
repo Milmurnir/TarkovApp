@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    # Windows, like the app: the zip and path handling under test is the
+    # Windows code path, and a Linux runner would not catch a backslash slip.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+        env:
+          # Tests never launch Electron, so its 100+ MB binary is not needed.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npx vite build
