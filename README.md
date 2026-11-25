@@ -1,6 +1,6 @@
 # Tarkov Quest Router
 
-Pick a map, enter a quest name, middle-click where you spawned, and get an
+Pick a map, enter a quest name, right-click where you spawned, and get an
 ordered route through that quest's objectives — plus exactly what you need to
 bring.
 
@@ -119,7 +119,7 @@ places at least 94% of its spawns and labels inside the image (eight of nine hit
 
 ## Using it
 
-- **Pick your spawn** by middle-clicking anywhere on the map, or choose a spawn
+- **Pick your spawn** by right-clicking anywhere on the map, or choose a spawn
   zone from the list. Spawn zones come from the game files, so they are the
   real infiltration points, and the extracts valid *from that spawn* are
   listed. Plain left-click is left free for panning and clicking markers.

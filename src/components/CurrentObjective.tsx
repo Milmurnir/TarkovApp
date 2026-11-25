@@ -8,20 +8,21 @@ interface Props {
 }
 
 /**
- * The stop you are heading to right now, with whatever comes next after it.
- * Selected by clicking a dot on the map or a step in the route list.
+ * The stop you are heading to right now, laid over the map's corner.
+ *
+ * It used to be a panel below the map, which put it a scroll away from the
+ * dots it describes: mid-raid you looked at the map, then scrolled down to
+ * read what the dot meant. Over the map it stays in view with the route, so
+ * it is kept to what you need at a glance -- what, where next, how far.
  */
 export default function CurrentObjective({ route, selectedOrder, onSelect }: Props) {
   const index = route.stops.findIndex((s) => s.order === selectedOrder);
   if (index === -1) {
     return (
-      <div className="panel">
-        <h2>Current objective</h2>
-        <p className="muted small">
-          Click a dot on the map or a step in the route to set what you are doing now, or press →.
-        </p>
+      <div className="map-objective idle">
+        <span className="muted small">Click a dot or press → to follow the route.</span>
         {route.stops.length > 0 && (
-          <button onClick={() => onSelect(route.stops[0].order)}>Start the route</button>
+          <button className="primary" onClick={() => onSelect(route.stops[0].order)}>Start</button>
         )}
       </div>
     );
@@ -34,21 +35,29 @@ export default function CurrentObjective({ route, selectedOrder, onSelect }: Pro
   const accent = current.questName ? questColor(current.questName) : null;
 
   return (
-    <div
-      className="panel current"
-      style={accent ? { borderTopColor: accent, borderTopWidth: 3 } : undefined}
-    >
-      <div className="panel-head">
-        <h2>Current objective</h2>
+    <div className="map-objective" style={accent ? { borderTopColor: accent } : undefined}>
+      <div className="map-objective-head">
+        <span className={`badge ${current.kind}`} style={accent ? { background: accent } : undefined}>
+          {glyph(current)}
+        </span>
+        {/* The quest name leads: the dot you clicked is colour-coded per quest,
+            and "Objective 1" alone never said which quest that was. */}
+        <div className="map-objective-title">
+          <div className="route-label" style={accent ? { color: accent } : undefined}>
+            {title(current)}
+            {current.optional && <span className="tag">optional</span>}
+          </div>
+          {current.questName && <div className="muted small">{current.label}</div>}
+        </div>
         <div className="current-nav">
-          <span className="muted small">Stop {index + 1} of {route.stops.length}</span>
+          <span className="muted small">{index + 1}/{route.stops.length}</span>
           <button
             onClick={() => previous && onSelect(previous.order)}
             disabled={!previous}
             title="Previous stop (←)"
             aria-label="Previous stop"
           >
-            ← Prev
+            ←
           </button>
           <button
             className="primary"
@@ -57,71 +66,47 @@ export default function CurrentObjective({ route, selectedOrder, onSelect }: Pro
             title="Next stop (→)"
             aria-label="Next stop"
           >
-            Next →
+            →
           </button>
-          <button onClick={() => onSelect(null)}>Clear</button>
+          <button onClick={() => onSelect(null)} title="Stop following the route" aria-label="Clear">×</button>
         </div>
       </div>
 
-      <div className="current-body">
-        <span className={`badge big ${current.kind}`} style={accent ? { background: accent } : undefined}>
-          {glyph(current)}
-        </span>
-        <div>
-          {/* The quest name leads: the dot you clicked is colour-coded per quest,
-              and "Objective 1" alone never said which quest that was. */}
-          <div className="route-label" style={accent ? { color: accent } : undefined}>
-            {title(current)}
-            {current.optional && <span className="tag">optional</span>}
-          </div>
-          {current.questName && <div className="muted small">{current.label}</div>}
-          <p className="small">
-            {current.description}
-            {/* Three of a thing in one spot is three trips, not one. */}
-            {current.count !== null && current.count !== undefined && current.count > 1 && (
-              <span className="count-badge">×{current.count}</span>
-            )}
-          </p>
-        </div>
-      </div>
-
-      <dl className="facts">
-        <dt>Distance in</dt>
-        <dd>{Math.round(current.legDistance)} m from the previous stop</dd>
-        <dt>Remaining</dt>
-        <dd>{Math.round(remaining)} m to the end of the route</dd>
-      </dl>
+      <p className="small map-objective-text">
+        {current.description}
+        {/* Three of a thing in one spot is three trips, not one. */}
+        {current.count !== null && current.count !== undefined && current.count > 1 && (
+          <span className="count-badge">×{current.count}</span>
+        )}
+      </p>
 
       {current.keys && current.keys.length > 0 && (
-        <section className="section">
-          <h3>Key for this stop</h3>
-          <ul>{current.keys.map((key) => <li key={key}>{key}</li>)}</ul>
-        </section>
+        <p className="small map-objective-text">
+          <span className="muted">Key: </span>{current.keys.join(', ')}
+        </p>
       )}
 
-      <section className="section">
-        <h3>Next up</h3>
-        {next ? (
-          <button className="next-step" onClick={() => onSelect(next.order)}>
-            <span
-              className={`badge ${next.kind}`}
-              style={next.questName ? { background: questColor(next.questName) } : undefined}
-            >
-              {glyph(next)}
-            </span>
-            <span>
-              <strong>{title(next)}</strong>
-              <span className="muted small"> · {Math.round(next.legDistance)} m further</span>
-              <br />
-              <span className="muted small">
-                {next.questName ? `${next.label} · ` : ''}{next.description}
-              </span>
-            </span>
-          </button>
-        ) : (
-          <p className="muted small">Nothing after this: the route ends here.</p>
-        )}
-      </section>
+      <p className="muted small map-objective-text">
+        {Math.round(current.legDistance)} m in · {Math.round(remaining)} m to the end
+      </p>
+
+      {next ? (
+        <button className="next-step" onClick={() => onSelect(next.order)}>
+          <span
+            className={`badge ${next.kind}`}
+            style={next.questName ? { background: questColor(next.questName) } : undefined}
+          >
+            {glyph(next)}
+          </span>
+          <span className="small">
+            <span className="muted">Next: </span>
+            <strong>{title(next)}</strong>
+            <span className="muted"> · {Math.round(next.legDistance)} m</span>
+          </span>
+        </button>
+      ) : (
+        <p className="muted small map-objective-text">The route ends here.</p>
+      )}
     </div>
   );
 }

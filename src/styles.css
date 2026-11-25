@@ -119,8 +119,10 @@ button:hover { border-color: var(--accent); }
 .map-shell { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .map-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .map-controls .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
-.map-viewport { height: clamp(360px, calc(100vh - 150px), 640px); overflow: hidden; cursor: grab; background: #070a0e; display: flex; align-items: center; justify-content: center; }
+.map-viewport { height: max(360px, calc(100vh - 140px)); overflow: hidden; cursor: grab; background: #070a0e; display: flex; align-items: center; justify-content: center; }
 .map-viewport:active { cursor: grabbing; }
+/* Wraps the viewport so the objective card can sit over it without taking its pointer handling. */
+.map-stage { position: relative; }
 .map-viewport.placing, .map-viewport.placing:active { cursor: crosshair; }
 .map-controls .primary { background: var(--accent); color: #0b0f14; border-color: var(--accent); font-weight: 600; }
 
@@ -372,15 +374,6 @@ button:hover { border-color: var(--accent); }
 .tracker-actions { display: flex; gap: 8px; margin-top: 12px; }
 .tracker-actions button { font-size: 12px; padding: 5px 10px; }
 
-/* Closing out a run and writing it back to TarkovTracker. */
-.finish-panel { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.finish-panel h2 { margin-bottom: 4px; }
-.finish-panel p { margin: 0; }
-.finish-panel .primary {
-  background: var(--accent); color: #0b0f14; border-color: var(--accent);
-  font-weight: 600; white-space: nowrap;
-}
-.finish-panel .primary:hover { filter: brightness(1.08); }
 
 .modal.wide { width: min(620px, 100%); }
 
@@ -512,6 +505,13 @@ input[type="range"] { accent-color: var(--accent); }
   height: 100vh;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+}
+.overlay input { font-size: 15px; }
+
+.overlay-suggestions { max-height: 170px; overflow-y: auto; }
 /* Shell 9+ sizes the window to the content instead, so the list can run longer. */
 .overlay.fitted { height: auto; }
 .overlay.fitted .overlay-suggestions { max-height: 380px; }
@@ -522,15 +522,48 @@ input[type="range"] { accent-color: var(--accent); }
   font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border);
 }
 .overlay input, .overlay button { -webkit-app-region: no-drag; }
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--border);
-}
-.overlay input { font-size: 15px; }
-
-.overlay-suggestions { max-height: 170px; overflow-y: auto; }
 .overlay-suggestions li.active button { background: #1b2532; }
 .overlay-suggestions button { display: flex; align-items: center; gap: 8px; }
 .overlay-suggestions img { border-radius: 3px; background: #0e141c; object-fit: contain; flex-shrink: 0; }
 .suggestion-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .suggestion-price { flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--accent); }
+
+/* The current objective, laid over the map's bottom-left corner. */
+.map-overlay {
+  position: absolute; left: 12px; bottom: 12px; z-index: 2;
+  width: min(380px, calc(100% - 24px));
+}
+.map-objective {
+  background: rgba(20, 27, 36, 0.95);
+  border: 1px solid var(--border); border-top: 3px solid var(--accent);
+  border-radius: 8px; padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.map-objective.idle {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border-top-width: 1px; width: max-content; max-width: 100%;
+}
+.map-objective .primary { background: var(--accent); color: #0b0f14; border-color: var(--accent); font-weight: 600; }
+.map-objective button { padding: 4px 10px; }
+.map-objective-head { display: flex; gap: 8px; align-items: flex-start; }
+.map-objective-title { flex: 1; min-width: 0; }
+.map-objective-text { margin: 6px 0 0; }
+.map-objective .next-step { margin-top: 8px; padding: 6px 8px; align-items: center; }
+.map-objective .badge { flex-basis: 24px; }
+
+/* What a picked quest's state is, at a glance; the title says why. */
+.status-icon {
+  display: inline-grid; place-items: center;
+  min-width: 20px; height: 20px; padding: 0 3px;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  border: 1px solid var(--border); border-radius: 4px; cursor: help;
+}
+.status-icon.done { color: #4ade80; border-color: #2f6b45; }
+.status-icon.warn { color: var(--accent); border-color: #5b4420; }
+.status-icon.quiet { color: var(--muted); }
+
+.index-progress { margin-top: 8px; }
+.index-progress p { margin: 6px 0 0; }
+.extract-line { margin: 8px 0 0; }
+.guide-link { margin: 0 0 8px; }
+.guide-link a { color: var(--muted); }

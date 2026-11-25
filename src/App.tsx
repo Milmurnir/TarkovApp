@@ -53,6 +53,21 @@ function tidyMapId(id: string): string {
   return id.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
+/** The marks beside a picked quest; the hover text is the explanation. */
+const STATUS_ICONS: Record<'completed' | 'locked' | 'not-given' | 'trader-locked' | 'too-low-level',
+  { icon: string; tone: string; hint: string }> = {
+  completed: { icon: '✓', tone: 'done', hint: 'Done: already marked finished in your progress' },
+  locked: { icon: '⊘', tone: 'warn', hint: 'Locked: a prerequisite quest is not finished yet' },
+  'not-given': {
+    icon: '✉',
+    tone: 'quiet',
+    hint: "Not given: unlocks through a trader conversation or story progress, and the game's logs show it has not been given to you yet",
+  },
+  'trader-locked': { icon: '₽', tone: 'warn', hint: 'Your trader settings rule this quest out' },
+  'too-low-level': { icon: 'Lv', tone: 'warn', hint: "Level: yours (set under Your progress) is below this quest's requirement" },
+};
+const NO_COORDS_HINT = 'No coordinates: nothing published for this map, so it is not drawn';
+
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -1008,18 +1023,22 @@ export default function App() {
             )}
           </div>
 
-          <div className="panel">
-            <h2>Your spawn</h2>
-
+          {/* Foldable, with the spawn in its header: once it is set, the
+              extract lists under it are reference, not something to work through. */}
+          <Fold
+            title="Your spawn"
+            meta={clickedSpawn ? 'Clicked point' : activeZone?.label ?? 'Not set'}
+            storageKey="spawn"
+          >
             {clickedSpawn ? (
               <p className="small">
-                Set by clicking the map at ({Math.round(clickedSpawn.x)}, {Math.round(clickedSpawn.z)}).{' '}
-                <button onClick={() => setClickedSpawn(null)}>Undo</button>
+                Set on the map at ({Math.round(clickedSpawn.x)}, {Math.round(clickedSpawn.z)}).{' '}
+                <button className="muted-button" onClick={() => setClickedSpawn(null)}>Clear</button>
               </p>
             ) : (
               <p className="muted small">
-                Pick your spawn area below, or for an exact spot press <strong>Set spawn</strong> on the
-                map (or right-click it).
+                Pick your spawn area below, or right-click the map (or press <strong>Set spawn</strong>)
+                for an exact spot.
               </p>
             )}
 
@@ -1037,14 +1056,10 @@ export default function App() {
                 </select>
 
                 {plainExtracts.length > 0 && (
-                  <section className="section">
-                    <h3>Extracts from this spawn</h3>
-                    <ul>
-                      {plainExtracts.map((extract) => (
-                        <li key={extract.name ?? ''}>{extractLabel(extract)}</li>
-                      ))}
-                    </ul>
-                  </section>
+                  <p className="small extract-line">
+                    <span className="muted">Extracts: </span>
+                    {plainExtracts.map(extractLabel).join(' · ')}
+                  </p>
                 )}
 
                 {restrictedExtracts.length > 0 && (
@@ -1067,14 +1082,12 @@ export default function App() {
             )}
 
             {transits.length > 0 && (
-              <section className="section">
-                <h3>Transit to other maps</h3>
-                <ul>
-                  {transits.map((transit, i) => <li key={i}>{transit.label}</li>)}
-                </ul>
-              </section>
+              <p className="small extract-line">
+                <span className="muted">Transits: </span>
+                {transits.map((transit) => transit.label.replace(/^Transit to /, '')).join(' · ')}
+              </p>
             )}
-          </div>
+          </Fold>
 
           {mode === 'loot' && (
             <LootRunPanel
@@ -1126,6 +1139,18 @@ export default function App() {
               }}
               autoFocus
             />
+            {indexProgress && (
+              <div className="index-progress">
+                <div className="update-bar">
+                  <span style={{ width: `${indexProgress.total ? (100 * indexProgress.done) / indexProgress.total : 0}%` }} />
+                </div>
+                <p className="muted small">
+                  Reading {indexProgress.total} quests from the wiki to sort them by map
+                  ({indexProgress.done}/{indexProgress.total}). Only the first launch takes this long;
+                  until it finishes, search covers every map.
+                </p>
+              </div>
+            )}
             {suggestions.length > 0 && (
               <ul className="suggestions">
                 {suggestions.map((title, i) => (
@@ -1173,35 +1198,21 @@ export default function App() {
                   >
                     <button className="chosen-name" onClick={() => setActiveWiki(title)}>{title}</button>
                     {/* Adding something you have already done, or cannot start
-                        yet, is worth saying rather than silently routing it. */}
-                    {standingFor(title) === 'completed' && (
-                      <span className="tag" title="Already marked finished in your progress">done</span>
-                    )}
-                    {standingFor(title) === 'locked' && (
-                      <span className="tag" title="A prerequisite quest is not finished yet">locked</span>
-                    )}
-                    {standingFor(title) === 'not-given' && (
-                      <span
-                        className="tag"
-                        title="Unlocks through a trader conversation or story progress, and the game's logs show it has not been given to you yet"
-                      >
-                        not given
-                      </span>
-                    )}
-                    {standingFor(title) === 'trader-locked' && (
-                      <span
-                        className="tag"
-                        title={traderBlock(taskIndex.idByName[normalize(title)] ?? '', taskIndex, progress.traders)
-                          ?? 'Your trader settings rule this quest out'}
-                      >
-                        trader
-                      </span>
-                    )}
-                    {standingFor(title) === 'too-low-level' && (
-                      <span className="tag" title="Your level (set under Your progress) is below this quest's requirement">level</span>
-                    )}
+                        yet, is worth saying rather than silently routing it.
+                        Icons rather than words, so a long name keeps its row. */}
+                    {(() => {
+                      const standing = standingFor(title);
+                      const status = standing === 'trader-locked'
+                        ? { ...STATUS_ICONS[standing], hint: traderBlock(taskIndex.idByName[normalize(title)] ?? '', taskIndex, progress.traders) ?? STATUS_ICONS[standing].hint }
+                        : standing === 'available' ? null : STATUS_ICONS[standing];
+                      return status && (
+                        <span role="img" className={`status-icon ${status.tone}`} title={status.hint} aria-label={status.hint}>
+                          {status.icon}
+                        </span>
+                      );
+                    })()}
                     {unroutable.includes(title) && (
-                      <span className="tag" title="No published objective coordinates on this map, so it is not drawn">no coords</span>
+                      <span role="img" className="status-icon quiet" title={NO_COORDS_HINT} aria-label={NO_COORDS_HINT}>⌖</span>
                     )}
                     <button
                       className="chosen-remove"
@@ -1386,12 +1397,29 @@ export default function App() {
               }}
               selectedOrder={selectedOrder}
               highlightQuest={selectedQuests.length > 1 ? activeTask?.name ?? null : null}
+              // In the toolbar because the map now fills the window: it is the
+              // one strip always in view, where a panel below it was a scroll away.
+              actions={mode === 'quests' && selectedQuests.length > 0 && (
+                <button
+                  className="primary"
+                  title="Tick off what you finished and the next run already knows"
+                  onClick={() => { setFinishSession((n) => n + 1); setFinishOpen(true); }}
+                >
+                  Finish run
+                </button>
+              )}
+              overlay={mode === 'quests' && route
+                ? <CurrentObjective route={route} selectedOrder={selectedOrder} onSelect={setSelectedOrder} />
+                : null}
             />
           ) : (
             <div className="panel"><p className="muted small">Loading map...</p></div>
           )}
 
           {mode === 'quests' && activeWiki && (
+            // Folded by default: the wiki text is long, and open it pushed the
+            // route and the requirements a screen below the map.
+            <Fold title={`${activeWiki} — guide`} storageKey="guide" defaultOpen={false}>
             <QuestGuide
               title={activeWiki}
               wikiUrl={wikiByTitle[activeWiki]?.wikiUrl}
@@ -1400,10 +1428,7 @@ export default function App() {
               mapNames={allMapNames}
               currentMap={wikiMapName || null}
             />
-          )}
-
-          {mode === 'quests' && route && (
-            <CurrentObjective route={route} selectedOrder={selectedOrder} onSelect={setSelectedOrder} />
+            </Fold>
           )}
 
           {mode === 'loot' && lootRun && lootRun.stops.length > 1 && (
@@ -1443,23 +1468,6 @@ export default function App() {
 
           {mode === 'quests' && route && (
             <RouteList route={route} selectedOrder={selectedOrder} onSelect={setSelectedOrder} />
-          )}
-
-          {mode === 'quests' && selectedQuests.length > 0 && (
-            <div className="panel finish-panel">
-              <div>
-                <h2>Done with this run?</h2>
-                <p className="muted small">
-                  Tick off what you finished and it is remembered, so the next run already knows.
-                </p>
-              </div>
-              <button
-                className="primary"
-                onClick={() => { setFinishSession((n) => n + 1); setFinishOpen(true); }}
-              >
-                Finish run
-              </button>
-            </div>
           )}
 
           {mode === 'quests' && unroutable.length > 0 && api && (

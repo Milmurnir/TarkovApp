@@ -52,10 +52,11 @@ export default function QuestGuide({
 
   return (
     <div className="panel" style={accent ? { borderTopColor: accent, borderTopWidth: 3 } : undefined}>
-      <div className="panel-head">
-        <h2>{title} — guide</h2>
-        {wikiUrl && <a href={wikiUrl} target="_blank" rel="noreferrer">open on wiki ↗</a>}
-      </div>
+      {/* The link sits outside the heading: inside a fold the heading is hidden. */}
+      <h2>{title} — guide</h2>
+      {wikiUrl && (
+        <p className="small guide-link"><a href={wikiUrl} target="_blank" rel="noreferrer">Open on the wiki ↗</a></p>
+      )}
 
       <ObjectiveList objectives={objectives} mapNames={mapNames} currentMap={currentMap} />
 

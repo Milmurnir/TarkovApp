@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { gameToSvg, svgToGame, type MapProjection, type MapViewBox } from '../lib/mapgeo';
 import type { RouteStop, Vec3 } from '../lib/types';
 import type { MapLabel } from '../lib/mapData';
@@ -30,6 +30,10 @@ interface Props {
   highlightQuest?: string | null;
   /** Multiplier on the spawn/objective/switch/extract markers, from Settings. */
   routeIconScale?: number;
+  /** Laid over the map's corner, outside the pan/zoom handling (the current objective). */
+  overlay?: ReactNode;
+  /** Extra buttons at the right end of the toolbar (Finish run). */
+  actions?: ReactNode;
 }
 
 const COLORS: Record<RouteStop['kind'], string> = {
@@ -49,14 +53,39 @@ function markerLabel(stop: RouteStop): string {
 
 /** Pointer travel beyond this many pixels counts as a drag, not a click. */
 const DRAG_THRESHOLD = 5;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 8;
+
+interface View {
+  zoom: number;
+  pan: { x: number; y: number };
+}
+
+/**
+ * Zooms to `nextZoom` keeping the map point under `anchor` (viewport pixels,
+ * relative to its centre) where it is. The SVG scales about its own centre,
+ * so a screen point s shows local point (s - pan) / zoom; holding that fixed
+ * gives the new pan.
+ */
+function zoomAbout(view: View, nextZoom: number, anchor: { x: number; y: number }): View {
+  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+  const ratio = zoom / view.zoom;
+  return {
+    zoom,
+    pan: {
+      x: anchor.x - ratio * (anchor.x - view.pan.x),
+      y: anchor.y - ratio * (anchor.y - view.pan.y),
+    },
+  };
+}
 
 export default function MapView({
   svgUrl, viewBox, projection,
   stops, labels = [], spawnPoints = [], sniperSpawns = [], transits = [], lootContainers = [],
-  onPickSpawn, onSelectStop, selectedOrder = null, highlightQuest = null, routeIconScale = 1,
+  onPickSpawn, onSelectStop, selectedOrder = null, highlightQuest = null, routeIconScale = 1, overlay, actions,
 }: Props) {
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [view, setView] = useState<View>({ zoom: 1, pan: { x: 0, y: 0 } });
+  const { zoom, pan } = view;
   /** Armed by the "Set spawn" button: the next plain click drops the spawn. */
   const [placing, setPlacing] = useState(false);
   const dragging = useRef<{ x: number; y: number } | null>(null);
@@ -70,12 +99,17 @@ export default function MapView({
     const node = viewportRef.current;
     if (!node) return;
 
+    // Plain scroll zooms, toward the cursor, as on every other map. It used to
+    // need ctrl, so the obvious gesture scrolled the page out from under the
+    // map instead; the map now fills the window, so there is nothing to scroll.
     const onWheelNative = (event: WheelEvent) => {
-      // Plain scroll should move the page, like everywhere else on the site;
-      // only ctrl/cmd+scroll (a pinch-zoom gesture on trackpads too) zooms the map.
-      if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      setZoom((z) => Math.min(8, Math.max(0.5, z * (event.deltaY < 0 ? 1.15 : 0.87))));
+      const box = node.getBoundingClientRect();
+      const anchor = {
+        x: event.clientX - box.left - box.width / 2,
+        y: event.clientY - box.top - box.height / 2,
+      };
+      setView((current) => zoomAbout(current, current.zoom * (event.deltaY < 0 ? 1.15 : 0.87), anchor));
     };
 
     node.addEventListener('wheel', onWheelNative, { passive: false });
@@ -123,7 +157,8 @@ export default function MapView({
 
   function onPointerMove(event: React.PointerEvent) {
     if (!dragging.current) return;
-    setPan({ x: event.clientX - dragging.current.x, y: event.clientY - dragging.current.y });
+    const origin = dragging.current;
+    setView((current) => ({ ...current, pan: { x: event.clientX - origin.x, y: event.clientY - origin.y } }));
   }
 
   function onPointerUp(event: React.PointerEvent) {
@@ -133,8 +168,8 @@ export default function MapView({
     if (!origin || !onPickSpawn) return;
     // Left-click normally pans and clicks markers, so an ordinary click never
     // relocates the spawn by accident -- unless "Set spawn" was armed first.
-    // Middle-click always drops it; right-click does too (see onContextMenu),
-    // for touchpads that have no middle button.
+    // Right-click is the documented way (see onContextMenu); middle-click
+    // quietly does the same, since older versions taught it.
     const armedLeft = placing && event.button === 0;
     if (event.button !== 1 && !armedLeft) return;
 
@@ -164,9 +199,9 @@ export default function MapView({
   return (
     <div className="map-shell">
       <div className="map-controls">
-        <button aria-label="Zoom in" title="Zoom in" onClick={() => setZoom((z) => Math.min(8, z * 1.3))}>+</button>
-        <button aria-label="Zoom out" title="Zoom out" onClick={() => setZoom((z) => Math.max(0.5, z / 1.3))}>−</button>
-        <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset</button>
+        <button aria-label="Zoom in" title="Zoom in" onClick={() => setView((v) => zoomAbout(v, v.zoom * 1.3, { x: 0, y: 0 }))}>+</button>
+        <button aria-label="Zoom out" title="Zoom out" onClick={() => setView((v) => zoomAbout(v, v.zoom / 1.3, { x: 0, y: 0 }))}>−</button>
+        <button onClick={() => setView({ zoom: 1, pan: { x: 0, y: 0 } })}>Reset</button>
         {onPickSpawn && (
           <button
             className={placing ? 'primary' : ''}
@@ -176,9 +211,11 @@ export default function MapView({
             {placing ? 'Click where you spawned… (Esc)' : 'Set spawn'}
           </button>
         )}
-        <span className="hint">right- or middle-click sets spawn · ctrl+scroll to zoom · drag to pan</span>
+        <span className="hint">right-click sets spawn · scroll to zoom · drag to pan</span>
+        {actions}
       </div>
 
+      <div className="map-stage">
       <div
         className={placing ? 'map-viewport placing' : 'map-viewport'}
         ref={viewportRef}
@@ -247,8 +284,8 @@ export default function MapView({
             const p = gameToSvg(sniper.position, projection, viewBox);
             return (
               <g key={`sniper-${i}`} transform={`translate(${p.x} ${p.y}) ${pin}`} style={{ pointerEvents: 'none' }}>
-                <circle r={7} fill="#ef4444" fillOpacity={0.25} stroke="#ef4444" strokeWidth={1.5} />
-                <path d="M -3 -3 L 3 3 M 3 -3 L -3 3" stroke="#ef4444" strokeWidth={1.5} />
+                <circle r={8.5} fill="#ef4444" fillOpacity={0.25} stroke="#ef4444" strokeWidth={1.5} />
+                <path d="M -3.5 -3.5 L 3.5 3.5 M 3.5 -3.5 L -3.5 3.5" stroke="#ef4444" strokeWidth={1.5} />
                 <title>{`Sniper scav${sniper.zoneName ? ` — ${sniper.zoneName}` : ''}`}</title>
               </g>
             );
@@ -258,9 +295,9 @@ export default function MapView({
             const p = gameToSvg(transit.position, projection, viewBox);
             return (
               <g key={`transit-${i}`} transform={`translate(${p.x} ${p.y}) ${pin}`} style={{ pointerEvents: 'none' }}>
-                <rect x={-8} y={-8} width={16} height={16} rx={3} transform="rotate(45)"
+                <rect x={-9} y={-9} width={18} height={18} rx={3} transform="rotate(45)"
                   fill="#2dd4bf" fillOpacity={0.3} stroke="#2dd4bf" strokeWidth={1.5} />
-                <text textAnchor="middle" dy={4} fontSize={10} fontWeight={700} fill="#2dd4bf">T</text>
+                <text textAnchor="middle" dy={4} fontSize={11} fontWeight={700} fill="#2dd4bf">T</text>
                 <title>{transit.label}</title>
               </g>
             );
@@ -309,21 +346,21 @@ export default function MapView({
                   onSelectStop?.(p.stop);
                 }}
               >
-                {selected && <circle r={14} fill="none" stroke="#fff" strokeWidth={2} opacity={0.9} />}
+                {selected && <circle r={17} fill="none" stroke="#fff" strokeWidth={2.5} opacity={0.9} />}
                 {highlighted && (
-                  <circle r={12} fill="none"
+                  <circle r={15} fill="none"
                     stroke={p.stop.questName ? questColor(p.stop.questName) : '#fbbf24'}
                     strokeWidth={2.5} opacity={0.95} />
                 )}
                 <circle
-                  r={highlighted ? 10 : 9}
+                  r={highlighted ? 12.5 : 11.5}
                   fill={p.stop.kind === 'objective' && p.stop.questName
                     ? questColor(p.stop.questName)
                     : COLORS[p.stop.kind]}
                   stroke={highlighted ? '#fff7e0' : '#0b0f14'}
                   strokeWidth={2}
                 />
-                <text textAnchor="middle" dy={4} fontSize={11} fontWeight={700} fill="#0b0f14">
+                <text textAnchor="middle" dy={4.5} fontSize={13} fontWeight={700} fill="#0b0f14">
                   {markerLabel(p.stop)}
                 </text>
                 <title>{`${p.stop.questName ? `${p.stop.questName}: ` : ''}${p.stop.label} — ${p.stop.description}`}</title>
@@ -331,6 +368,8 @@ export default function MapView({
             );
           })}
         </svg>
+      </div>
+      {overlay && <div className="map-overlay">{overlay}</div>}
       </div>
     </div>
   );
