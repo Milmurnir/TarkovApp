@@ -9,64 +9,41 @@ import UpdateNotice from './components/UpdateNotice';
 import CoopPanel from './components/CoopPanel';
 import CoopNotices from './components/CoopNotices';
 import LootPanel from './components/LootPanel';
-import { byDensity, loadContainerNames, placeContainers } from './lib/loot';
 import LootRunPanel from './components/LootRunPanel';
-import { buildLootRun, DEFAULT_BALANCE, itemsOnMap, spotsFor, type ItemChoice } from './lib/lootRun';
-import {
-  containerItemChoices, containersHolding, loadContainerLoot, type ContainerLoot,
-} from './lib/containerLoot';
 import ProgressPanel from './components/ProgressPanel';
 import FinishRunDialog from './components/FinishRunDialog';
 import SettingsPanel from './components/SettingsPanel';
 import Fold from './components/Fold';
+import MapPicker from './components/MapPicker';
+import SpawnPanel from './components/SpawnPanel';
+import QuestSearch from './components/QuestSearch';
+import ChosenQuests from './components/ChosenQuests';
+import ProgressNotices from './components/ProgressNotices';
+import MultiMapPrompt from './components/MultiMapPrompt';
 import { loadSettings, saveSettings, type Settings } from './lib/settings';
 import { loadRunState, saveRunState } from './lib/runState';
 import { useGameLogSync } from './lib/useGameLogSync';
+import { useProgress } from './lib/useProgress';
+import { useReferenceData } from './lib/useReferenceData';
+import { useSpawnAndExtracts } from './lib/useSpawnAndExtracts';
+import { useLootLayer, useLootRun } from './lib/useLoot';
+import { useRouteKeys } from './lib/useRouteKeys';
 import { traderBlock } from './lib/traders';
-import { loadFleaItems } from './lib/priceCheck';
 import { questMapSpan } from './lib/multiMap';
-import MultiMapPrompt from './components/MultiMapPrompt';
 import {
-  emptyProgress, loadDurableProgress, loadProgress, missingPrerequisites, onDurableSave, persistDurable, saveProgress,
-  standingById, withCompleted, type Progress, type ProgressExport,
+  emptyProgress, missingPrerequisites, standingById, withCompleted, type ProgressExport,
 } from './lib/progress';
 import { useCoopRun, useMirroredField } from './lib/useCoopRun';
 import type { CheckEntry } from './lib/sharedRun';
 import { buildRoute } from './lib/route';
-import {
-  JsonApiError, fetchMapSlice, loadLooseLoot, loadTaskIndex, type MapSlice,
-} from './lib/jsonApi';
+import { JsonApiError, fetchMapSlice, loadTaskIndex, type MapSlice } from './lib/jsonApi';
 import { fetchQuest, fetchQuestList, searchQuests } from './lib/wiki';
 import { fetchQuestIndex, questsForMap, type QuestIndex } from './lib/questIndex';
-import {
-  extractDisplayName, extractRestriction, extractsForSpawn, fetchMapData, fetchMapIndex,
-  isPlainPmcExtract, spawnZones,
-  type MapData, type MapExtractInfo, type MapIndexEntry, type MapSpawnPoint,
-} from './lib/mapData';
+import { fetchMapData, fetchMapIndex, type MapData, type MapIndexEntry } from './lib/mapData';
 import type { MapExtract, Task, Vec3, WikiQuest } from './lib/types';
 import { questAccent } from './lib/questColor';
 
 const DEFAULT_MAP = 'streets-of-tarkov';
-
-/** "the-lab-dark" -> "The Lab Dark": a last resort when no translated name is cached. */
-function tidyMapId(id: string): string {
-  return id.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-}
-
-/** The marks beside a picked quest; the hover text is the explanation. */
-const STATUS_ICONS: Record<'completed' | 'locked' | 'not-given' | 'trader-locked' | 'too-low-level',
-  { icon: string; tone: string; hint: string }> = {
-  completed: { icon: '✓', tone: 'done', hint: 'Done: already marked finished in your progress' },
-  locked: { icon: '⊘', tone: 'warn', hint: 'Locked: a prerequisite quest is not finished yet' },
-  'not-given': {
-    icon: '✉',
-    tone: 'quiet',
-    hint: "Not given: unlocks through a trader conversation or story progress, and the game's logs show it has not been given to you yet",
-  },
-  'trader-locked': { icon: '₽', tone: 'warn', hint: 'Your trader settings rule this quest out' },
-  'too-low-level': { icon: 'Lv', tone: 'warn', hint: "Level: yours (set under Your progress) is below this quest's requirement" },
-};
-const NO_COORDS_HINT = 'No coordinates: nothing published for this map, so it is not drawn';
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -105,21 +82,12 @@ export default function App() {
   const [clickedSpawn, setClickedSpawn] = useState<Vec3 | null>(restored.clickedSpawn);
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
 
-  const [progress, setProgress] = useState<Progress>(() => loadProgress());
+  const { progress, updateProgress, changeProgress, durableProblem } = useProgress();
   const [hideFinished, setHideFinished] = useState(restored.hideFinished);
   const [finishOpen, setFinishOpen] = useState(false);
-  const [containerNames, setContainerNames] = useState<Record<string, string>>({});
   /** Quest routing, or a raid built around one item. */
   const [mode, setMode] = useState<'quests' | 'loot' | 'settings'>('quests');
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
-  const [lootWanted, setLootWanted] = useState<ItemChoice[]>([]);
-  const [lootLimit, setLootLimit] = useState(10);
-  const [lootBalance, setLootBalance] = useState(DEFAULT_BALANCE);
-  const [itemNames, setItemNames] = useState<Record<string, string>>({});
-  const [containerLoot, setContainerLoot] = useState<ContainerLoot>(
-    { ids: [], names: [], containers: {}, chances: {} },
-  );
-  const [shortNames, setShortNames] = useState<Record<string, string>>({});
   /** Bumped on every open so the dialog never inherits the last run's ticks. */
   const [finishSession, setFinishSession] = useState(0);
   /** The last automatic back-fill, kept so it can be undone. */
@@ -185,16 +153,6 @@ export default function App() {
   }, [mapName, selectedQuests, activeWiki, pages, addedOnPage, multiMapQuests, dismissedMultiMap,
     clickedSpawn, zoneIndex, hideFinished]);
 
-  /** Every progress change is written through, so a crash loses nothing. */
-  function updateProgress(next: Progress) {
-    setProgress(saveProgress(next));
-  }
-
-  /** Same as updateProgress, but from whatever progress is current when it applies. */
-  const changeProgress = useCallback((change: (current: Progress) => Progress) => {
-    setProgress((current) => saveProgress(change(current)));
-  }, []);
-
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((current) => {
       const next = { ...current, ...patch };
@@ -205,24 +163,6 @@ export default function App() {
 
   // Map and loot layers live in settings so they survive a restart.
   const { showSnipers, showTransits, showLoot, lootRadius, hiddenLoot, lootDensity } = settings;
-
-  // A fresh install has an empty localStorage but the user-data file is still
-  // there, which is what makes progress outlive replacing the app.
-  useEffect(() => {
-    loadDurableProgress(progress).then((restored) => {
-      // Written straight back out, so localStorage matches from here on and a
-      // restore leaves a trace rather than being invisible.
-      if (restored) setProgress(saveProgress(restored));
-      // Otherwise the file may be the one that is behind: bring it up to date
-      // now rather than leaving it stale until the next change.
-      else if (progress.updatedAt > 0) persistDurable(progress);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /** Set when progress stops reaching the durable file, so it is seen rather than swallowed. */
-  const [durableProblem, setDurableProblem] = useState<string | null>(null);
-  useEffect(() => onDurableSave((state) => setDurableProblem(state && !state.ok ? state.reason : null)), []);
 
   const coop = useCoopRun();
   /** The checklist is shared during a run and kept locally otherwise. */
@@ -254,17 +194,9 @@ export default function App() {
       .catch((e) => setWikiError(String(e)));
   }, []);
 
-  // Warms the price-check overlay's item cache so the first hotkey press mid-raid
-  // is not the moment it starts an 18 MB fetch. Silent on failure: the overlay
-  // retries this itself and reports the error there, where it is actually seen.
-  useEffect(() => {
-    loadFleaItems().catch(() => {});
-  }, []);
-
   // Reload everything map-specific when the map changes.
   useEffect(() => {
     setMapData(null);
-    setLootWanted([]);
     setSelectedOrder(null);
     // The restored map's spawn is still the right one; only a switch clears it.
     if (spawnMap.current !== mapName) {
@@ -661,184 +593,13 @@ export default function App() {
     setClearedRun(null);
   }
 
-  const apiSpawns = useMemo(() => api?.spawns ?? [], [api]);
+  const reference = useReferenceData();
+  const {
+    sniperSpawns, transits, zones, activeZone, plainExtracts, restrictedExtracts,
+    extractLabel, routableExtracts, routeStart,
+  } = useSpawnAndExtracts({ mapData, api, maps, zoneIndex, clickedSpawn });
 
-  useEffect(() => { loadContainerNames().then(setContainerNames); }, []);
-  useEffect(() => { loadContainerLoot().then(setContainerLoot); }, []);
-
-  useEffect(() => {
-    fetch('/data/item-shortnames.json')
-      .then((response) => (response.ok ? response.json() : {}))
-      .then(setShortNames)
-      .catch(() => setShortNames({}));
-  }, []);
-
-  useEffect(() => {
-    fetch('/data/loot-items.json')
-      .then((response) => (response.ok ? response.json() : {}))
-      .then(setItemNames)
-      .catch(() => setItemNames({}));
-  }, []);
-
-  /** Loose loot for this map, read from what the last map fetch cached. */
-  const looseLoot = useMemo(() => loadLooseLoot(mapName), [mapName, api]);
-  /** Names for everything searchable: loose loot, keys, and container contents. */
-  const allItemNames = useMemo(() => {
-    const names: Record<string, string> = { ...itemNames };
-    containerLoot.ids.forEach((id, index) => {
-      if (!names[id]) names[id] = containerLoot.names[index] ?? id;
-    });
-    return names;
-  }, [itemNames, containerLoot]);
-
-  const lootItems = useMemo(() => {
-    const seen = new Map(itemsOnMap(looseLoot.points, allItemNames).map((item) => [item.id, item]));
-
-    // How many containers of each kind stand on this map, so an item's count
-    // can include the cupboards it might be inside and not just the floor.
-    const perTemplate = new Map<string, number>();
-    for (const container of api?.lootContainers ?? []) {
-      perTemplate.set(container.template, (perTemplate.get(container.template) ?? 0) + 1);
-    }
-
-    const fromContainers = new Map<number, number>();
-    for (const [template, indexes] of Object.entries(containerLoot.containers)) {
-      const placed = perTemplate.get(template);
-      if (!placed) continue;
-      for (const index of indexes) {
-        fromContainers.set(index, (fromContainers.get(index) ?? 0) + placed);
-      }
-    }
-
-    for (const [index, count] of fromContainers) {
-      const id = containerLoot.ids[index];
-      if (!id) continue;
-      const existing = seen.get(id);
-      if (existing) existing.spots += count;
-      else seen.set(id, { id, name: containerLoot.names[index] ?? id, spots: count });
-    }
-
-    return Array.from(seen.values())
-      .map((item) => ({ ...item, short: shortNames[item.id] }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [looseLoot, allItemNames, api, containerLoot, shortNames]);
-
-
-
-  /**
-   * Only Streets tags a 'sniper' category in the API, so the generated data
-   * (derived from marksman waves) is the source that covers every map.
-   */
-  const sniperSpawns = useMemo(() => {
-    if (mapData?.sniperSpawns?.length) return mapData.sniperSpawns;
-    return api?.sniperSpawns ?? [];
-  }, [mapData, api]);
-
-  /** Where this map lets you walk straight into another one, e.g. Woods into Reserve. */
-  const transits = useMemo(() => {
-    return (api?.transits ?? []).map((transit) => {
-      const destination = maps.find((m) => m.normalizedName === transit.toMap)?.wikiName
-        ?? transit.toMapName
-        ?? (transit.toMap ? tidyMapId(transit.toMap) : null);
-      return {
-        position: transit.position,
-        label: destination ? `Transit to ${destination}` : (transit.description ?? 'Transit'),
-        toMap: transit.toMap,
-      };
-    });
-  }, [api, maps]);
-
-  const zones = useMemo(() => (mapData ? spawnZones(mapData.spawns, mapData.labels) : []), [mapData]);
-  const activeZone = zones[Math.min(zoneIndex, Math.max(0, zones.length - 1))] ?? null;
-
-  /** Centre of an infiltration zone, used as the route start when offline. */
-  const zoneCentre: MapSpawnPoint | null = useMemo(() => {
-    if (!activeZone || activeZone.spawns.length === 0) return null;
-    const count = activeZone.spawns.length;
-    const sum = activeZone.spawns.reduce(
-      (acc, s) => ({ x: acc.x + s.position.x, y: acc.y + s.position.y, z: acc.z + s.position.z }),
-      { x: 0, y: 0, z: 0 },
-    );
-    return {
-      ...activeZone.spawns[0],
-      zoneName: activeZone.label,
-      position: { x: sum.x / count, y: sum.y / count, z: sum.z / count },
-    };
-  }, [activeZone]);
-
-  const spawnExtracts = useMemo(
-    () => (mapData && activeZone ? extractsForSpawn(mapData.extracts, activeZone.infiltration) : []),
-    [mapData, activeZone],
-  );
-  const plainExtracts = useMemo(() => spawnExtracts.filter(isPlainPmcExtract), [spawnExtracts]);
-
-  /**
-   * In-game extract names, keyed by the untranslated name SPT also uses. The
-   * offline data only has that raw id, so the API supplies the label players
-   * actually see on the exit timer.
-   */
-  const extractNameByRaw = useMemo(() => {
-    const byRaw = new Map<string, string>();
-    for (const extract of api?.extracts ?? []) {
-      if (extract.rawName && extract.name) byRaw.set(extract.rawName.toLowerCase(), extract.name);
-    }
-    return byRaw;
-  }, [api]);
-
-  function extractLabel(extract: MapExtractInfo): string {
-    const raw = extract.name ?? '';
-    return extractNameByRaw.get(raw.toLowerCase()) ?? extractDisplayName(raw);
-  }
-
-  const restrictedExtracts = useMemo(
-    () => spawnExtracts.filter((e) => !isPlainPmcExtract(e)),
-    [spawnExtracts],
-  );
-
-  /**
-   * Extracts the route may finish at. The API supplies the coordinates and the
-   * SPT list supplies the restrictions, joined on the untranslated name, so
-   * scav routes and special exits (no backpack, Red Rebel, train) are excluded.
-   */
-  const routableExtracts = useMemo(() => {
-    if (!api) return [];
-    const pmcOnly = api.extracts.filter((e) => e.faction !== 'scav');
-    if (!mapData) return pmcOnly;
-
-    const restricted = new Set(
-      mapData.extracts.filter((e) => !isPlainPmcExtract(e)).map((e) => (e.name ?? '').toLowerCase()),
-    );
-    const allowed = pmcOnly.filter((e) => !restricted.has((e.rawName ?? '').toLowerCase()));
-    // Never strip every option: an empty list would leave the route with no end.
-    return allowed.length > 0 ? allowed : pmcOnly;
-  }, [api, mapData]);
-
-  /**
-   * Where the route starts: the clicked point, else the spawn zone picked in
-   * the sidebar. The API's spawn list is only a last resort -- its first entry
-   * is whatever the API happens to list first, often a scav or boss spawn,
-   * and using it ahead of the zone made the zone picker do nothing.
-   */
-  const routeStart = useMemo(() => {
-    if (clickedSpawn) return { position: clickedSpawn, zoneName: 'Clicked spawn' };
-    if (zoneCentre) return { position: zoneCentre.position, zoneName: zoneCentre.zoneName };
-    const spawn = apiSpawns.find((s) => s.sides?.some((side) => /pmc|all/i.test(side))) ?? apiSpawns[0];
-    if (spawn) return { position: spawn.position, zoneName: spawn.zoneName };
-    return null;
-  }, [clickedSpawn, apiSpawns, zoneCentre]);
-
-  const lootSpots = useMemo(() => {
-    const ids = lootWanted.map((item) => item.id);
-    return spotsFor(
-      ids, looseLoot.points, api?.lootContainers ?? [],
-      containersHolding(ids, containerLoot), containerNames,
-    );
-  }, [lootWanted, looseLoot, api, containerLoot, containerNames]);
-
-  const lootRun = useMemo(() => {
-    if (mode !== 'loot' || lootSpots.length === 0 || !routeStart) return null;
-    return buildLootRun(lootSpots, looseLoot.locks, routeStart, lootLimit, allItemNames, lootBalance);
-  }, [mode, lootSpots, looseLoot, routeStart, lootLimit, allItemNames, lootBalance]);
+  const loot = useLootRun({ mapName, api, active: mode === 'loot', routeStart, reference });
 
   /**
    * A pending multi-map quest's exit is the transit to its next leg, not
@@ -860,31 +621,7 @@ export default function App() {
     return buildRoute(tasks, routeStart, routableExtracts, mapName, transitExtract);
   }, [tasks, api, routeStart, routableExtracts, mapName, transitExtract]);
 
-  // ← / → step through the route without reaching for the mouse mid-raid.
-  // Ignored while typing, and while a dialog is open.
-  useEffect(() => {
-    if (mode !== 'quests' || !route || route.stops.length === 0) return;
-    const stops = route.stops;
-
-    function onKey(event: KeyboardEvent) {
-      if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
-      if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target && (target.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) return;
-      if (document.querySelector('.modal-backdrop')) return;
-
-      const index = stops.findIndex((s) => s.order === selectedOrder);
-      const nextIndex = event.key === 'ArrowRight'
-        ? (index === -1 ? 0 : Math.min(stops.length - 1, index + 1))
-        : (index === -1 ? -1 : Math.max(0, index - 1));
-      if (nextIndex < 0) return;
-      event.preventDefault();
-      setSelectedOrder(stops[nextIndex].order);
-    }
-
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [mode, route, selectedOrder]);
+  useRouteKeys(route, mode === 'quests', selectedOrder, setSelectedOrder);
 
   /** With no coordinates for objectives, at least mark where you spawn. */
   const fallbackStops = useMemo(() => {
@@ -926,27 +663,9 @@ export default function App() {
     }
   }, [selectedQuests, wikiByTitle, loadingQuest]);
 
-  /** Containers with a name and a distance from the route. */
-  const placedLoot = useMemo(
-    () => placeContainers(api?.lootContainers ?? [], containerNames, route ? route.stops.map((s) => s.position) : []),
-    [api, containerNames, route],
-  );
-
-  const visibleLoot = useMemo(() => {
-    if (!showLoot) return [];
-    // With no route there is nothing to be near, so the radius sits inert
-    // rather than filtering everything away.
-    const byRoute = lootRadius === null || !route
-      ? () => true
-      : (container: { fromRoute: number }) => container.fromRoute <= lootRadius;
-
-    // Density is judged against everything on the map, not what survives the
-    // other filters: hiding drawers should not make a cluster stop being one.
-    const dense = new Set(byDensity(placedLoot, lootDensity));
-
-    return placedLoot.filter((container) =>
-      byRoute(container) && dense.has(container) && !hiddenLoot.includes(container.name));
-  }, [showLoot, placedLoot, lootRadius, hiddenLoot, route, lootDensity]);
+  const { placed: placedLoot, visible: visibleLoot } = useLootLayer({
+    api, containerNames: reference.containerNames, route, settings,
+  });
 
   return (
     <div className="app">
@@ -984,126 +703,46 @@ export default function App() {
           ) : (
           <>
 
-          <div className="panel">
-            <h2>Map</h2>
-            <select value={mapName} onChange={(e) => switchMap(e.target.value)}>
-              {maps.map((m) => (
-                <option key={m.normalizedName} value={m.normalizedName}>{m.wikiName}</option>
-              ))}
-            </select>
-            {clearedRun && (
-              <p className="backfill-note small">
-                Cleared {clearedRun.selectedQuests.length} quest{clearedRun.selectedQuests.length === 1 ? '' : 's'} from{' '}
-                {mapDisplayName(clearedRun.mapName)}.{' '}
-                <button className="muted-button" onClick={undoMapSwitch}>Undo</button>
-              </p>
-            )}
-            {pages.length > 1 && (
-              <div className="page-tabs">
-                {pages.map((p, i) => (
-                  <button
-                    key={p}
-                    className={p === mapName ? 'active' : ''}
-                    onClick={() => switchMap(p)}
-                  >
-                    {i + 1}. {mapDisplayName(p)}
-                  </button>
-                ))}
-              </div>
-            )}
-            <label className="toggle">
-              <input type="checkbox" checked={showSnipers} onChange={(e) => updateSettings({ showSnipers: e.target.checked })} />
-              Show sniper scavs ({sniperSpawns.length})
-            </label>
-            {transits.length > 0 && (
-              <label className="toggle">
-                <input type="checkbox" checked={showTransits} onChange={(e) => updateSettings({ showTransits: e.target.checked })} />
-                Show transits ({transits.length})
-              </label>
-            )}
-          </div>
+          <MapPicker
+            maps={maps}
+            mapName={mapName}
+            onSwitch={switchMap}
+            cleared={clearedRun && { mapName: clearedRun.mapName, count: clearedRun.selectedQuests.length }}
+            onUndoSwitch={undoMapSwitch}
+            pages={pages}
+            mapDisplayName={mapDisplayName}
+            snipers={{ shown: showSnipers, count: sniperSpawns.length, onChange: (shown) => updateSettings({ showSnipers: shown }) }}
+            transits={{ shown: showTransits, count: transits.length, onChange: (shown) => updateSettings({ showTransits: shown }) }}
+          />
 
-          {/* Foldable, with the spawn in its header: once it is set, the
-              extract lists under it are reference, not something to work through. */}
-          <Fold
-            title="Your spawn"
-            meta={clickedSpawn ? 'Clicked point' : activeZone?.label ?? 'Not set'}
-            storageKey="spawn"
-          >
-            {clickedSpawn ? (
-              <p className="small">
-                Set on the map at ({Math.round(clickedSpawn.x)}, {Math.round(clickedSpawn.z)}).{' '}
-                <button className="muted-button" onClick={() => setClickedSpawn(null)}>Clear</button>
-              </p>
-            ) : (
-              <p className="muted small">
-                Pick your spawn area below, or right-click the map (or press <strong>Set spawn</strong>)
-                for an exact spot.
-              </p>
-            )}
-
-            {zones.length > 0 && (
-              <>
-                <select
-                  value={zoneIndex}
-                  onChange={(e) => { setZoneIndex(Number(e.target.value)); setClickedSpawn(null); }}
-                >
-                  {zones.map((zone, i) => (
-                    <option key={zone.infiltration} value={i}>
-                      {zone.label} ({zone.spawns.length} spawn points)
-                    </option>
-                  ))}
-                </select>
-
-                {plainExtracts.length > 0 && (
-                  <p className="small extract-line">
-                    <span className="muted">Extracts: </span>
-                    {plainExtracts.map(extractLabel).join(' · ')}
-                  </p>
-                )}
-
-                {restrictedExtracts.length > 0 && (
-                  <details className="section">
-                    <summary className="muted small">
-                      {restrictedExtracts.length} conditional exit{restrictedExtracts.length === 1 ? '' : 's'} hidden
-                      (scav routes, no-backpack and similar)
-                    </summary>
-                    <ul>
-                      {restrictedExtracts.map((extract) => (
-                        <li key={extract.name ?? ''}>
-                          {extractLabel(extract)}
-                          <span className="tag">{extractRestriction(extract)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-              </>
-            )}
-
-            {transits.length > 0 && (
-              <p className="small extract-line">
-                <span className="muted">Transits: </span>
-                {transits.map((transit) => transit.label.replace(/^Transit to /, '')).join(' · ')}
-              </p>
-            )}
-          </Fold>
+          <SpawnPanel
+            clickedSpawn={clickedSpawn}
+            onClearSpawn={() => setClickedSpawn(null)}
+            zones={zones}
+            zoneIndex={zoneIndex}
+            onZone={(index) => { setZoneIndex(index); setClickedSpawn(null); }}
+            activeZoneLabel={activeZone?.label ?? null}
+            plainExtracts={plainExtracts}
+            restrictedExtracts={restrictedExtracts}
+            extractLabel={extractLabel}
+            transits={transits}
+          />
 
           {mode === 'loot' && (
             <LootRunPanel
-              items={lootItems}
-              chosen={lootWanted}
-              onAdd={(item) => setLootWanted((current) =>
+              items={loot.items}
+              chosen={loot.wanted}
+              onAdd={(item) => loot.setWanted((current) =>
                 current.some((c) => c.id === item.id) ? current : [...current, item])}
-              onRemove={(id) => setLootWanted((current) => current.filter((c) => c.id !== id))}
-              onClear={() => setLootWanted([])}
-              spots={lootSpots.length}
-              run={lootRun}
-              limit={lootLimit}
-              balance={lootBalance}
-              onBalance={setLootBalance}
-              onLimit={setLootLimit}
-              keyNames={allItemNames}
+              onRemove={(id) => loot.setWanted((current) => current.filter((c) => c.id !== id))}
+              onClear={() => loot.setWanted([])}
+              spots={loot.spots.length}
+              run={loot.run}
+              limit={loot.limit}
+              balance={loot.balance}
+              onBalance={loot.setBalance}
+              onLimit={loot.setLimit}
+              keyNames={loot.allItemNames}
               mapName={wikiMapName || mapName}
               hasSpawn={Boolean(routeStart)}
             />
@@ -1112,160 +751,43 @@ export default function App() {
           {mode === 'quests' && (
           <div className="panel">
             <h2>Quests</h2>
-            <input
-              value={query}
-              placeholder={
-                indexProgress
-                  ? `Indexing quests ${indexProgress.done}/${indexProgress.total}...`
-                  : mapQuestTitles.length
-                    ? `Add a ${wikiMapName} quest...`
-                    : 'Loading quest list...'
-              }
-              onChange={(e) => { setQuery(e.target.value); setHighlight(0); }}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowDown' && suggestions.length > 0) {
-                  e.preventDefault();
-                  setHighlight((h) => Math.min(suggestions.length - 1, h + 1));
-                } else if (e.key === 'ArrowUp' && suggestions.length > 0) {
-                  e.preventDefault();
-                  setHighlight((h) => Math.max(0, h - 1));
-                } else if (e.key === 'Enter' && query.trim() && suggestions.length > 0) {
-                  e.preventDefault();
-                  pickQuest(suggestions[Math.min(highlight, suggestions.length - 1)]);
-                } else if (e.key === 'Escape') {
-                  setQuery('');
-                  setHighlight(0);
-                }
+            <QuestSearch
+              query={query}
+              onQuery={(value) => { setQuery(value); setHighlight(0); }}
+              highlight={highlight}
+              onHighlight={setHighlight}
+              suggestions={suggestions}
+              elsewhere={elsewhereMatches}
+              onPick={(title) => pickQuest(title)}
+              onPickElsewhere={(match) => {
+                const target = maps.find((m) => m.wikiName === match.map)?.normalizedName;
+                if (target) switchMap(target);
+                // Keeps the switch's Undo: this pick is part of that switch.
+                pickQuest(match.title, { keepUndo: true, page: target ?? mapName });
               }}
-              autoFocus
+              mapLabel={wikiMapName}
+              questCount={mapQuestTitles.length}
+              indexProgress={indexProgress}
             />
-            {indexProgress && (
-              <div className="index-progress">
-                <div className="update-bar">
-                  <span style={{ width: `${indexProgress.total ? (100 * indexProgress.done) / indexProgress.total : 0}%` }} />
-                </div>
-                <p className="muted small">
-                  Reading {indexProgress.total} quests from the wiki to sort them by map
-                  ({indexProgress.done}/{indexProgress.total}). Only the first launch takes this long;
-                  until it finishes, search covers every map.
-                </p>
-              </div>
-            )}
-            {suggestions.length > 0 && (
-              <ul className="suggestions">
-                {suggestions.map((title, i) => (
-                  <li key={title} className={i === highlight ? 'active' : undefined}>
-                    <button onClick={() => pickQuest(title)} onMouseEnter={() => setHighlight(i)}>{title}</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {query.trim().length > 1 && suggestions.length === 0 && mapQuestTitles.length > 0 && (
-              <div className="muted small">
-                No {wikiMapName} quest matches "{query.trim()}".
-                {elsewhereMatches.length > 0 && (
-                  <>
-                    {' '}On other maps:
-                    <ul className="suggestions">
-                      {elsewhereMatches.map((match) => (
-                        <li key={match.title}>
-                          <button
-                            onClick={() => {
-                              const target = maps.find((m) => m.wikiName === match.map)?.normalizedName;
-                              if (target) switchMap(target);
-                              // Keeps the switch's Undo: this pick is part of that switch.
-                              pickQuest(match.title, { keepUndo: true, page: target ?? mapName });
-                            }}
-                          >
-                            {match.title}
-                            {match.map && <span className="muted small"> · switch to {match.map}</span>}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </div>
-            )}
 
-            {visibleSelectedQuests.length > 0 && (
-              <ul className="chosen">
-                {visibleSelectedQuests.map((title) => (
-                  <li
-                    key={title}
-                    className={activeWiki === title ? 'active' : ''}
-                    style={{ borderLeft: `4px solid ${questAccent(taskNameFor(title))}` }}
-                  >
-                    <button className="chosen-name" onClick={() => setActiveWiki(title)}>{title}</button>
-                    {/* Adding something you have already done, or cannot start
-                        yet, is worth saying rather than silently routing it.
-                        Icons rather than words, so a long name keeps its row. */}
-                    {(() => {
-                      const standing = standingFor(title);
-                      const status = standing === 'trader-locked'
-                        ? { ...STATUS_ICONS[standing], hint: traderBlock(taskIndex.idByName[normalize(title)] ?? '', taskIndex, progress.traders) ?? STATUS_ICONS[standing].hint }
-                        : standing === 'available' ? null : STATUS_ICONS[standing];
-                      return status && (
-                        <span role="img" className={`status-icon ${status.tone}`} title={status.hint} aria-label={status.hint}>
-                          {status.icon}
-                        </span>
-                      );
-                    })()}
-                    {unroutable.includes(title) && (
-                      <span role="img" className="status-icon quiet" title={NO_COORDS_HINT} aria-label={NO_COORDS_HINT}>⌖</span>
-                    )}
-                    <button
-                      className="chosen-remove"
-                      onClick={() => removeQuest(title)}
-                      title={`Remove ${title}`}
-                      aria-label={`Remove ${title}`}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ChosenQuests
+              titles={visibleSelectedQuests}
+              active={activeWiki}
+              onFocus={setActiveWiki}
+              onRemove={removeQuest}
+              accentOf={(title) => questAccent(taskNameFor(title))}
+              standingOf={standingFor}
+              traderReason={(title) => traderBlock(taskIndex.idByName[normalize(title)] ?? '', taskIndex, progress.traders)}
+              unroutable={unroutable}
+            />
 
-            {durableProblem && (
-              <p className="error small">
-                Progress is not reaching its save file ({durableProblem}). It is still kept inside the
-                app, but would not survive a reinstall — please report this.
-              </p>
-            )}
-
-            {gameLogs.lastImport && (
-              <p className="backfill-note small">
-                Marked {gameLogs.lastImport.count} quest{gameLogs.lastImport.count === 1 ? '' : 's'} finished
-                from the game's logs.{' '}
-                <button className="muted-button" onClick={() => setMode('settings')}>Details</button>
-                {' · '}
-                <button className="muted-button" onClick={gameLogs.dismissImport}>OK</button>
-              </p>
-            )}
-
-            {gameLogs.wipePrompt && (
-              <div className="catch-up">
-                <p className="small">
-                  {gameLogs.wipePrompt.manual ? 'Counting quests from ' : 'The game logs show a wipe on '}
-                  <strong>{new Date(gameLogs.wipePrompt.at).toLocaleDateString()}</strong>.
-                  {' '}{gameLogs.wipePrompt.extra} quest{gameLogs.wipePrompt.extra === 1 ? ' is' : 's are'} marked
-                  finished here that the game has not seen you finish since.
-                </p>
-                <div className="catch-up-actions">
-                  <button className="primary" onClick={() => gameLogs.resolveWipe(true)}>Match the game</button>
-                  <button onClick={() => gameLogs.resolveWipe(false)}>Keep mine</button>
-                </div>
-              </div>
-            )}
-
-            {lastBackfill && (
-              <p className="backfill-note small">
-                Marked the {lastBackfill.ids.length} quest{lastBackfill.ids.length === 1 ? '' : 's'} before{' '}
-                {lastBackfill.title} as finished.{' '}
-                <button className="muted-button" onClick={undoBackfill}>Undo</button>
-              </p>
-            )}
+            <ProgressNotices
+              durableProblem={durableProblem}
+              gameLogs={gameLogs}
+              onShowLogDetails={() => setMode('settings')}
+              backfill={lastBackfill}
+              onUndoBackfill={undoBackfill}
+            />
 
             {selectedQuests.length > 1 && (
               <p className="muted small">Routing {selectedQuests.length} quests together.</p>
@@ -1326,12 +848,12 @@ export default function App() {
                 onAddAvailable={addAvailableQuests}
                 onHideFinished={setHideFinished}
                 onSetLevel={(level) => updateProgress({ ...progress, playerLevel: level })}
-            onSetTrader={(traderId, level) => changeProgress((current) => {
-              const traders = { ...current.traders };
-              if (level === null) delete traders[traderId];
-              else traders[traderId] = level;
-              return { ...current, traders };
-            })}
+                onSetTrader={(traderId, level) => changeProgress((current) => {
+                  const traders = { ...current.traders };
+                  if (level === null) delete traders[traderId];
+                  else traders[traderId] = level;
+                  return { ...current, traders };
+                })}
                 onImport={importProgress}
                 onReset={() => updateProgress(emptyProgress())}
               />
@@ -1382,7 +904,7 @@ export default function App() {
               viewBox={mapData.viewBox}
               projection={mapData.projection}
               stops={mode === 'loot'
-                ? (lootRun ? lootRun.stops : fallbackStops)
+                ? (loot.run ? loot.run.stops : fallbackStops)
                 : (route ? route.stops : fallbackStops)}
               labels={mapData.labels}
               spawnPoints={activeZone ? activeZone.spawns.map((sp) => ({ x: sp.position.x, z: sp.position.z })) : []}
@@ -1431,8 +953,8 @@ export default function App() {
             </Fold>
           )}
 
-          {mode === 'loot' && lootRun && lootRun.stops.length > 1 && (
-            <RouteList route={{ stops: lootRun.stops, totalDistance: lootRun.totalDistance, unmappedObjectives: [] }} />
+          {mode === 'loot' && loot.run && loot.run.stops.length > 1 && (
+            <RouteList route={{ stops: loot.run.stops, totalDistance: loot.run.totalDistance, unmappedObjectives: [] }} />
           )}
 
           {mode === 'quests' && (
