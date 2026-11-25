@@ -5,7 +5,20 @@
 const selfUpdate = require('./selfUpdate.cjs');
 if (selfUpdate.finishUpdateIfAsked()) return;
 
-const { app, BrowserWindow, Tray, Menu, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell, screen } = require('electron');
+
+// One copy at a time. A second one could not get the fixed port, so it would
+// start on a random one with none of the saved state, fail to register the
+// hotkey and run a second log watcher. Starting the app again instead brings
+// the running copy forward.
+// Tests point this at a scratch folder, so they never touch real progress
+// (and, since the lock is per profile, never collide with a running copy).
+if (process.env.TQR_USER_DATA) app.setPath('userData', process.env.TQR_USER_DATA);
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  return;
+}
 const path = require('path');
 const { startServer } = require('./server.cjs');
 const { getUiRoot, registerUpdateIpc } = require('./updater.cjs');
@@ -20,13 +33,44 @@ const { registerGameLogIpc } = require('./gameLogs.cjs');
 /** Chosen to be an unlikely collision; see startServer for why it is fixed. */
 const DEFAULT_PORT = 47821;
 const HOTKEY_STORE_KEY = 'priceCheckHotkey';
+const BOUNDS_STORE_KEY = 'windowBounds';
+const DEFAULT_SIZE = { width: 1500, height: 950 };
 
 let serverHandle = null;
 let mainWindow = null;
 let overlayWindow = null;
 let tray = null;
-/** Set only by a real quit path, so a window's own close button can hide it instead. */
+/** Set on any real quit path, so the overlay window closes instead of hiding. */
 let quitting = false;
+
+/**
+ * Where the window was last left, if that spot is still on a connected
+ * display -- a monitor unplugged since must not strand it off-screen.
+ */
+function savedBounds() {
+  const saved = readKey(BOUNDS_STORE_KEY);
+  if (!saved || typeof saved !== 'object') return null;
+  const { x, y, width, height, maximized } = saved;
+  if (![x, y, width, height].every(Number.isFinite) || width < 400 || height < 300) return null;
+  const visible = screen.getAllDisplays().some(({ workArea: a }) =>
+    x < a.x + a.width - 100 && x + width > a.x + 100 && y >= a.y - 20 && y < a.y + a.height - 100);
+  return visible ? { x, y, width, height, maximized: Boolean(maximized) } : null;
+}
+
+function saveBounds(window) {
+  try {
+    writeKey(BOUNDS_STORE_KEY, { ...window.getNormalBounds(), maximized: window.isMaximized() });
+  } catch (error) {
+    console.error('Could not save the window position:', error);
+  }
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
 
 /** "Control+G" -> "Ctrl+G", the form the tray menu and Settings show. */
 function formatAccelerator(accelerator) {
@@ -53,9 +97,9 @@ async function createWindow() {
     return;
   }
 
+  const bounds = savedBounds();
   const window = new BrowserWindow({
-    width: 1500,
-    height: 950,
+    ...(bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : DEFAULT_SIZE),
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0b0f14',
@@ -70,6 +114,7 @@ async function createWindow() {
     },
   });
   mainWindow = window;
+  if (bounds?.maximized) window.maximize();
 
   // Wiki links belong in the real browser, not in a bare app window.
   window.webContents.setWindowOpenHandler(({ url: target }) => {
@@ -83,6 +128,7 @@ async function createWindow() {
   // Setting `quitting` first lets the overlay window close too rather than
   // hide, so nothing is left behind.
   window.on('close', () => {
+    saveBounds(window);
     quitting = true;
     app.quit();
   });
@@ -111,7 +157,7 @@ function createTray() {
   const t = new Tray(createTrayIcon());
   updateTrayMenu(t);
   // The one-click default on Windows/Linux; macOS ignores it in favour of the menu.
-  t.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
+  t.on('click', showMainWindow);
   return t;
 }
 
@@ -124,7 +170,7 @@ function updateTrayMenu(t) {
 
   t.setToolTip('Tarkov Quest Router');
   t.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Show Tarkov Quest Router', click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+    { label: 'Show Tarkov Quest Router', click: showMainWindow },
     { label, click: () => showOverlay(overlayWindow) },
     { type: 'separator' },
     { label: 'Quit', click: () => { quitting = true; app.quit(); } },
@@ -151,8 +197,10 @@ app.whenReady().then(() => {
   createWindow();
 });
 
+app.on('second-instance', showMainWindow);
+
 app.on('activate', () => {
-  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+  if (mainWindow) showMainWindow();
   else if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
@@ -163,8 +211,8 @@ app.on('before-quit', () => { quitting = true; });
 app.on('will-quit', () => { unregisterPriceCheckHotkey(); });
 
 app.on('window-all-closed', () => {
-  // Both windows now hide rather than close on their own, so this only fires
-  // once quitting is already true (or on a platform without the tray habit).
+  // Only reached once quitting: the main window's X quits, and the overlay
+  // only ever closes for real once `quitting` is set.
   if (serverHandle) serverHandle.close();
   if (process.platform !== 'darwin') app.quit();
 });
