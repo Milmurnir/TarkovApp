@@ -93,7 +93,8 @@ Two details worth knowing:
 Extracts list their switches as *ids* into the map's switch array, so they are
 looked up rather than read inline — otherwise switch waypoints never appear.
 
-The old GraphQL client is still in `src/lib/tarkov.ts` if that API returns.
+The old GraphQL client (`src/lib/tarkov.ts`) was removed in 0.12.0; it is in
+the git history if that API ever returns.
 
 ## The projection
 
@@ -458,7 +459,6 @@ electron/updateSignature.cjs   Ed25519 signing/checking of release assets
 scripts/sign-release.mjs       signs release/*.zip (and makes the key with --init)
 src/lib/wiki.ts                MediaWiki client + wikitext parser
 src/lib/questIndex.ts          per-map quest index, batched and cached
-src/lib/tarkov.ts              GraphQL client, per-map caching, offline fallback
 src/lib/mapData.ts             generated per-map spawns, extracts, labels
 src/lib/mapgeo.ts              projection, forward and inverse
 src/lib/route.ts               nearest-neighbour + 2-opt routing

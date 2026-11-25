@@ -3,12 +3,13 @@
 /**
  * Local server for the packaged app.
  *
- * Serves the built frontend and proxies the two upstreams, mirroring the Vite
+ * Serves the built frontend and proxies the upstreams, mirroring the Vite
  * dev proxy exactly. Loading the renderer over http://127.0.0.1 rather than
  * file:// means the app has a normal origin, so fetch, CORS and localStorage all
  * behave the same as they do in development and the frontend needs no changes.
  *
- * Bound to 127.0.0.1 on a random free port: nothing is exposed to the network.
+ * Bound to 127.0.0.1 on a fixed port (see startServer): nothing is exposed to
+ * the network.
  */
 
 const http = require('http');
@@ -19,9 +20,8 @@ const { URL } = require('url');
 
 const UPSTREAMS = {
   '/api/wiki': { host: 'escapefromtarkov.fandom.com', path: '/api.php' },
-  '/api/tarkov': { host: 'api.tarkov.dev', path: '/graphql' },
-  // json.tarkov.dev keeps the rest of the request path, unlike the two above
-  // which map onto a single fixed endpoint.
+  // json.tarkov.dev keeps the rest of the request path, unlike the wiki
+  // which maps onto a single fixed endpoint.
   '/api/json': { host: 'json.tarkov.dev', path: '', keepPath: true },
 };
 
@@ -36,6 +36,9 @@ function matchUpstream(pathname) {
   const suffix = upstream.keepPath ? pathname.slice(prefix.length) : '';
   return { host: upstream.host, path: upstream.path + suffix };
 }
+
+/** Socket idle time, not total time: a large dataset still downloads as long as it keeps flowing. */
+const UPSTREAM_TIMEOUT_MS = 30000;
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -75,8 +78,17 @@ function proxy(request, response, upstream, search) {
     });
 
     upstreamRequest.on('error', (error) => {
+      // Failing mid-body: the status is already sent, so just cut it short.
+      if (response.headersSent) {
+        response.destroy(error);
+        return;
+      }
       response.writeHead(502, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ errors: [`Upstream unreachable: ${error.message}`] }));
+    });
+    // A stalled upstream would otherwise leave the page waiting forever.
+    upstreamRequest.setTimeout(UPSTREAM_TIMEOUT_MS, () => {
+      upstreamRequest.destroy(new Error(`${upstream.host} did not answer in time`));
     });
 
     if (body.length > 0) upstreamRequest.write(body);
