@@ -227,6 +227,14 @@ A few implementation notes:
   kept working, but that read as "I closed it and it's still running". Now X
   exits completely; minimize instead to keep the hotkey alive in the
   background. The tray icon's *Quit* still works too.
+- **The combo is taken system-wide.** Windows delivers every press of a
+  registered global hotkey to the app that owns it -- even a single Ctrl+G
+  that was never going to become a double tap -- so while the app runs that
+  combo stops reaching the game or anything else. Settings says so next to
+  the binding.
+- **Only one copy runs.** Starting the app again brings the running window
+  forward instead: a second copy could not have the fixed port (so none of
+  its saved state), the hotkey, or the log watcher.
 - **Exclusive fullscreen is a real limitation.** An always-on-top window can
   only draw over a game running borderless/fullscreen-windowed. True exclusive
   fullscreen hands the whole display to the game at the driver level, and no

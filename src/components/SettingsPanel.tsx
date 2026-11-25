@@ -261,6 +261,10 @@ function PriceCheckHotkeySection() {
           <span className="error small"> · not active — another app may be using this combo</span>
         )}
       </p>
+      <p className="muted small">
+        While the app runs, Windows hands every {formatAccelerator(hotkey.accelerator)} press to it, even a
+        single one, so that combo stops working in the game and other apps. Pick one you never use.
+      </p>
       <button onClick={() => { setError(null); setRecording(true); }} disabled={recording}>
         {recording ? 'Press keys...' : 'Change...'}
       </button>
