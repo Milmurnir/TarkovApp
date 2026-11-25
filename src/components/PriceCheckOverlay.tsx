@@ -16,6 +16,18 @@ export default function PriceCheckOverlay() {
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // The window takes the height of what it shows, from a lone search box up
+  // to a full list (the main process caps it).
+  useEffect(() => {
+    const node = rootRef.current;
+    const bridge = priceCheckBridge();
+    if (!node || !bridge?.resize) return;
+    const observer = new ResizeObserver(() => bridge.resize?.(Math.ceil(node.getBoundingClientRect().height)));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   function fetchItems() {
     loadFleaItems()
@@ -61,7 +73,12 @@ export default function PriceCheckOverlay() {
   }
 
   return (
-    <div className="overlay" onKeyDown={onKeyDown}>
+    <div className={priceCheckBridge()?.resize ? 'overlay fitted' : 'overlay'} ref={rootRef} onKeyDown={onKeyDown}>
+      {/* The window has no frame; this strip is what you drag it by. */}
+      <div className="overlay-grip">
+        <span>Price check</span>
+        <span>drag to move · Esc to close</span>
+      </div>
       <input
         ref={inputRef}
         autoFocus

@@ -512,6 +512,16 @@ input[type="range"] { accent-color: var(--accent); }
   height: 100vh;
   display: flex;
   flex-direction: column;
+/* Shell 9+ sizes the window to the content instead, so the list can run longer. */
+.overlay.fitted { height: auto; }
+.overlay.fitted .overlay-suggestions { max-height: 380px; }
+.overlay-grip {
+  -webkit-app-region: drag; user-select: none; cursor: move;
+  display: flex; justify-content: space-between;
+  margin: -14px -14px 0; padding: 6px 14px;
+  font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border);
+}
+.overlay input, .overlay button { -webkit-app-region: no-drag; }
   gap: 10px;
   padding: 14px;
   border: 1px solid var(--border);

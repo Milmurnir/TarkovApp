@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('appStore', {
  */
 contextBridge.exposeInMainWorld('priceCheck', {
   hide: () => ipcRenderer.send('pricecheck:hide'),
+  /** Asks for the window to be this tall (CSS px); the main process clamps it. */
+  resize: (height) => ipcRenderer.send('pricecheck:resize', height),
   onShow: (callback) => {
     const handler = () => callback();
     ipcRenderer.on('pricecheck:show', handler);

@@ -33,6 +33,7 @@ const { registerGameLogIpc } = require('./gameLogs.cjs');
 /** Chosen to be an unlikely collision; see startServer for why it is fixed. */
 const DEFAULT_PORT = 47821;
 const HOTKEY_STORE_KEY = 'priceCheckHotkey';
+const OVERLAY_POSITION_KEY = 'overlayPosition';
 const BOUNDS_STORE_KEY = 'windowBounds';
 const DEFAULT_SIZE = { width: 1500, height: 950 };
 
@@ -135,7 +136,10 @@ async function createWindow() {
 
   window.loadURL(url);
 
-  overlayWindow = createOverlayWindow(url, () => quitting);
+  overlayWindow = createOverlayWindow(url, () => quitting, {
+    read: () => readKey(OVERLAY_POSITION_KEY),
+    write: (position) => writeKey(OVERLAY_POSITION_KEY, position),
+  });
 
   // Whatever Settings last saved, falling back to the default on a first run
   // or a corrupted store; a rejected custom binding is reported, not silently

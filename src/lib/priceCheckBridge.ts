@@ -18,6 +18,8 @@ export interface HotkeyState {
 export interface PriceCheckBridge {
   /** Esc, or clicking outside the popup: hides the window without closing it. */
   hide: () => void;
+  /** Fits the window to its content. Absent before shell 9. */
+  resize?: (height: number) => void;
   /** Fires each time the global hotkey (re)opens the reused window. */
   onShow: (callback: () => void) => () => void;
   getHotkey: () => Promise<HotkeyState>;
