@@ -68,6 +68,28 @@ export function mergeFields(current: Fields, incoming: Fields): { fields: Fields
   return { fields, changed };
 }
 
+/**
+ * Takes the relay's correction of our own writes' times. The relay pulls a
+ * write stamped ahead of its clock back to its own time (relay/merge.js); a
+ * copy here still carrying the future stamp would reject every change the
+ * other player makes to that field until this PC's clock caught up.
+ *
+ * Only a field that is still exactly that write is corrected: if it has
+ * changed since, the newer write is on its way to the relay and gets its own
+ * correction.
+ */
+export function applyRestamp(current: Fields, incoming: Fields): Fields {
+  const fields = { ...current };
+  for (const [path, field] of Object.entries(incoming)) {
+    const mine = fields[path];
+    if (!mine || !field || typeof field.at !== 'number') continue;
+    if (mine.by !== field.by || field.at >= mine.at) continue;
+    if (JSON.stringify(mine.value) !== JSON.stringify(field.value)) continue;
+    fields[path] = { ...mine, at: field.at };
+  }
+  return fields;
+}
+
 /** Reads the flat field map back into the shape the app works with. */
 export function toRunState(fields: Fields): RunState {
   const state = emptyRunState();

@@ -1,4 +1,4 @@
-import { mergeFields, type Fields, type Peer } from './sharedRun';
+import { applyRestamp, mergeFields, type Fields, type Peer } from './sharedRun';
 import { RELAY_URL } from './syncConfig';
 
 /**
@@ -96,6 +96,11 @@ export class RunSync {
         // against, and publishing local defaults would wipe whatever the person
         // who started the run had already set up.
         if (message.type === 'snapshot') this.events.onReady();
+        return;
+      }
+      if (message.type === 'restamp') {
+        // Same values, earlier times: nothing on screen changes.
+        this.fields = applyRestamp(this.fields, message.fields ?? {});
         return;
       }
       if (message.type === 'presence') {

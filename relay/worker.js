@@ -12,6 +12,8 @@
  * item" actually is.
  */
 
+import { mergeIncoming } from './merge.js';
+
 /** Rooms idle longer than this are dropped; a run does not outlive a session. */
 const ROOM_TTL_MS = 1000 * 60 * 60 * 12;
 const MAX_MESSAGE_BYTES = 64 * 1024;
@@ -90,7 +92,9 @@ export class RunRoom {
     }
 
     if (message.type === 'patch') {
-      const accepted = await this.merge(message.fields);
+      const { accepted, restamped } = await this.merge(message.fields);
+      // The sender's clock ran ahead: tell it the time this was kept under.
+      if (Object.keys(restamped).length > 0) ws.send(JSON.stringify({ type: 'restamp', fields: restamped }));
       if (Object.keys(accepted).length === 0) return;
 
       const payload = JSON.stringify({ type: 'patch', fields: accepted });
@@ -109,37 +113,19 @@ export class RunRoom {
   }
 
   /**
-   * Applies incoming fields to the stored state, returning only those that
-   * actually won. Echoing back a rejected field would fight the sender's own
-   * newer value.
+   * Applies incoming fields to the stored state (rule in merge.js), returning
+   * only those that actually won. Echoing back a rejected field would fight
+   * the sender's own newer value.
    */
   async merge(incoming) {
-    if (!incoming || typeof incoming !== 'object') return {};
-
     const fields = (await this.ctx.storage.get('fields')) ?? {};
-    const accepted = {};
+    const result = mergeIncoming(fields, incoming, Date.now(), MAX_FIELDS);
 
-    for (const [path, field] of Object.entries(incoming)) {
-      if (typeof path !== 'string' || path.length > 200) continue;
-      if (!field || typeof field !== 'object' || typeof field.at !== 'number') continue;
-      if (!(path in fields) && Object.keys(fields).length >= MAX_FIELDS) continue;
-
-      const current = fields[path];
-      const wins = !current
-        || field.at > current.at
-        || (field.at === current.at && String(field.by) > String(current.by));
-
-      if (wins) {
-        fields[path] = { value: field.value, at: field.at, by: String(field.by ?? '') };
-        accepted[path] = fields[path];
-      }
-    }
-
-    if (Object.keys(accepted).length > 0) {
+    if (Object.keys(result.accepted).length > 0) {
       await this.ctx.storage.put('fields', fields);
       await this.ctx.storage.setAlarm(Date.now() + ROOM_TTL_MS);
     }
-    return accepted;
+    return result;
   }
 
   async announcePresence() {
