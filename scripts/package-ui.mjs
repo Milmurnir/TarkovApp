@@ -29,6 +29,8 @@ if (!fs.existsSync(path.join(dist, 'index.html'))) {
 
 fs.mkdirSync(releaseDir, { recursive: true });
 fs.rmSync(zipPath, { force: true });
+// A signature for the previous zip would not match this one.
+fs.rmSync(`${zipPath}.sig`, { force: true });
 
 // Node has no zip writer; Compress-Archive is already on every Windows box and
 // this only ever runs on the machine doing the release.
@@ -53,7 +55,7 @@ try {
   console.log('To publish this update:');
   console.log(`  1. Bump "version" in package.json (currently ${pkg.version}) and re-run this script.`);
   console.log(`  2. Create a GitHub release tagged v${pkg.version}.`);
-  console.log('  3. Attach release/ui.zip to it.');
+  console.log('  3. Attach release/ui.zip and release/ui.zip.sig to it (the app refuses an unsigned bundle).');
   console.log('  4. Write what changed in the release notes; users see that text in the popup.');
   console.log('');
   console.log(`  Shell version of this build: ${shellVersion}.`);

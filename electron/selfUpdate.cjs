@@ -35,6 +35,7 @@ const MAX_HANDOFFS = 2;
 const updateRoot = () => path.join(app.getPath('userData'), 'app-update');
 const readyPath = () => path.join(updateRoot(), 'ready.json');
 
+/** Numeric dot-separated compare; anything unparsable sorts as 0. Shared with updater.cjs. */
 function compareVersions(a, b) {
   const parse = (v) => String(v ?? '').replace(/^[vV]/, '').split(/[.-]/).map((n) => Number(n) || 0);
   const left = parse(a);
@@ -236,5 +237,5 @@ function finishUpdateIfAsked() {
 
 module.exports = {
   canSelfUpdate, stagedUpdate, failedVersion, handOff, cleanUpLater, finishUpdateIfAsked,
-  writeReady, withoutAsar, updateRoot,
+  writeReady, withoutAsar, updateRoot, compareVersions,
 };

@@ -391,9 +391,26 @@ reinstalling anything.
 npm run release:ui
 ```
 
-That builds the frontend, packs `dist` into `release/ui.zip`, and unpacks it
+That builds the frontend, packs `dist` into `release/ui.zip`, unpacks it
 again with the very reader the app uses, so a bundle cannot ship in a shape the
-updater chokes on. Then bump `version` in `package.json`, create a GitHub
+updater chokes on, and signs it into `release/ui.zip.sig`.
+
+### Signed updates
+
+From shell 8 on, the app installs nothing that is not signed. Each asset it
+downloads -- `ui.zip`, and the packaged app zip for a shell update -- needs a
+`<asset>.sig` attached to the same release: an Ed25519 signature over the
+asset name, the release version and the file's SHA-256
+(`electron/updateSignature.cjs`). The public key is in
+`electron/update-config.json`; the private key lives outside the repo, at
+`~/.tarkov-quest-router/update-signing-key.pem` (or `TQR_SIGNING_KEY`).
+
+- `npm run release:ui` / `npm run release:app` sign as their last step;
+  `node scripts/sign-release.mjs` re-signs whatever is in `release/`.
+- **Back the private key up.** Lose it and installed apps take no further
+  update until people reinstall a build carrying a new public key.
+- A release whose asset is unsigned, or signed for another version, is
+  refused with an error in the update popup rather than installed. Then bump `version` in `package.json`, create a GitHub
 release tagged `vX.Y.Z`, and attach `ui.zip`. The release feed is
 [Milmurnir/TarkovApp](https://github.com/Milmurnir/TarkovApp), set once in
 `electron/update-config.json`; blanking `repo` there switches the updater off.
@@ -437,6 +454,8 @@ src/lib/sync.ts                relay client: one socket, reconnect, heartbeat
 src/lib/useCoopRun.ts          the co-op connection, and mirroring app state onto it
 electron/updater.cjs           GitHub release check, bundle download and install
 electron/unzip.cjs             dependency-free zip reader used to unpack bundles
+electron/updateSignature.cjs   Ed25519 signing/checking of release assets
+scripts/sign-release.mjs       signs release/*.zip (and makes the key with --init)
 src/lib/wiki.ts                MediaWiki client + wikitext parser
 src/lib/questIndex.ts          per-map quest index, batched and cached
 src/lib/tarkov.ts              GraphQL client, per-map caching, offline fallback

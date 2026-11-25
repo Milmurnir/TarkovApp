@@ -3,5 +3,6 @@
   "repo": "Milmurnir/TarkovApp",
   "asset": "ui.zip",
   "appAsset": "TarkovQuestRouter-win32-x64.zip",
-  "checkOnStartup": true
+  "checkOnStartup": true,
+  "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA050Q6HqF1R1sa+OXraX2HPF4J5pPP2ooOodEZdvf58g=\n-----END PUBLIC KEY-----"
 }

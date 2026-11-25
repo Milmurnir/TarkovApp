@@ -21,6 +21,8 @@ if (!fs.existsSync(path.join(appDir, 'TarkovQuestRouter.exe'))) {
 }
 
 fs.rmSync(zipPath, { force: true });
+// A signature for the previous zip would not match this one.
+fs.rmSync(`${zipPath}.sig`, { force: true });
 
 // Compressing the folder itself (not its contents) keeps it as the zip's one
 // top-level entry, so extracting gives back the same "keep this folder
@@ -33,6 +35,6 @@ execFileSync('powershell.exe', [
 const size = fs.statSync(zipPath).size;
 console.log('');
 console.log(`Packed release/TarkovQuestRouter-win32-x64.zip (${(size / 1024 / 1024).toFixed(1)} MB)`);
-console.log('Attach it to the GitHub release alongside ui.zip -- the update popup');
+console.log('Attach it and its .sig to the GitHub release alongside ui.zip -- the update popup');
 console.log('links straight to it whenever a release needs a reinstall.');
 console.log('');

@@ -23,6 +23,7 @@ const https = require('https');
 const { app, ipcMain, shell } = require('electron');
 const { extractZip, extractZipAsync } = require('./unzip.cjs');
 const selfUpdate = require('./selfUpdate.cjs');
+const signature = require('./updateSignature.cjs');
 
 const config = require('./update-config.json');
 const appPackage = require('../package.json');
@@ -48,6 +49,22 @@ const statePath = () => path.join(uiDir(), 'state.json');
 let pending = null;
 /** A whole-app update the last check found, when this build can install it itself. */
 let pendingApp = null;
+/** Downloads already running, so a second click or check joins them instead of racing. */
+let uiDownload = null;
+let appDownload = null;
+
+/** The `<asset>.sig` attached next to an asset, if any. */
+function signatureAsset(release, asset) {
+  return asset ? (release.assets || []).find((a) => a.name === `${asset.name}.sig`) || null : null;
+}
+
+/** Fetches and checks an asset's signature; a build with no publicKey configured skips this. */
+async function checkSignature(assetName, version, sigUrl, sha256Hex) {
+  if (!config.publicKey) return;
+  if (!sigUrl) throw new Error(`${assetName} in v${version} is not signed; refusing the update.`);
+  const text = (await readBody(await request(sigUrl))).toString('utf8');
+  signature.verify(config.publicKey, assetName, version, sha256Hex, text);
+}
 
 function readState() {
   try {
@@ -57,17 +74,7 @@ function readState() {
   }
 }
 
-/** Numeric dot-separated compare; anything unparsable sorts as 0. */
-function compareVersions(a, b) {
-  const parse = (v) => String(v ?? '').replace(/^[vV]/, '').split(/[.-]/).map((n) => Number(n) || 0);
-  const left = parse(a);
-  const right = parse(b);
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const diff = (left[i] ?? 0) - (right[i] ?? 0);
-    if (diff !== 0) return diff < 0 ? -1 : 1;
-  }
-  return 0;
-}
+const { compareVersions } = selfUpdate;
 
 /**
  * The frontend actually in use: a downloaded bundle when it is newer than the
@@ -191,14 +198,29 @@ async function checkForUpdate() {
   const current = currentUiVersion();
   const newer = version !== '' && compareVersions(version, current) > 0;
 
-  pending = newer && asset ? { version, url: asset.browser_download_url } : null;
+  const assetSig = signatureAsset(release, asset);
+  const appSig = signatureAsset(release, appAsset);
+  // Never swap the target of a download that is already running.
+  if (!uiDownload) {
+    pending = newer && asset
+      ? { version, name: asset.name, url: asset.browser_download_url, sigUrl: assetSig && assetSig.browser_download_url }
+      : null;
+  }
 
   const needsNewShell = newer && (needsShell > SHELL_VERSION || !asset);
   // Installed by swapping the whole app on restart -- unless this is not a
   // packaged build, or this exact version already failed to swap in once.
-  pendingApp = needsNewShell && appAsset && selfUpdate.canSelfUpdate() && selfUpdate.failedVersion() !== version
-    ? { version, url: appAsset.browser_download_url, size: appAsset.size }
-    : null;
+  if (!appDownload) {
+    pendingApp = needsNewShell && appAsset && selfUpdate.canSelfUpdate() && selfUpdate.failedVersion() !== version
+      ? {
+        version,
+        name: appAsset.name,
+        url: appAsset.browser_download_url,
+        sigUrl: appSig && appSig.browser_download_url,
+        size: appAsset.size,
+      }
+      : null;
+  }
   const staged = selfUpdate.stagedUpdate();
 
   return {
@@ -228,15 +250,25 @@ function pruneOldBundles(keep) {
   }
 }
 
-async function downloadUpdate(onProgress) {
-  if (!pending) throw new Error('No update is ready to install. Check again first.');
+function downloadUpdate(onProgress) {
+  if (!uiDownload) {
+    uiDownload = installUiUpdate(onProgress).finally(() => { uiDownload = null; });
+  }
+  return uiDownload;
+}
 
-  const response = await request(pending.url);
+async function installUiUpdate(onProgress) {
+  // Taken once: a check finishing mid-download must not change what this installs.
+  const update = pending;
+  if (!update) throw new Error('No update is ready to install. Check again first.');
+
+  const response = await request(update.url);
   const archive = await readBody(response, onProgress);
+  await checkSignature(update.name, update.version, update.sigUrl, signature.sha256OfBuffer(archive));
 
   fs.mkdirSync(uiDir(), { recursive: true });
-  const staging = path.join(uiDir(), `${pending.version}.part`);
-  const target = path.join(uiDir(), pending.version);
+  const staging = path.join(uiDir(), `${update.version}.part`);
+  const target = path.join(uiDir(), update.version);
 
   fs.rmSync(staging, { recursive: true, force: true });
   fs.mkdirSync(staging, { recursive: true });
@@ -256,13 +288,12 @@ async function downloadUpdate(onProgress) {
 
   fs.writeFileSync(
     statePath(),
-    JSON.stringify({ version: pending.version, dir: target, installedAt: Date.now() }, null, 2),
+    JSON.stringify({ version: update.version, dir: target, installedAt: Date.now() }, null, 2),
   );
-  pruneOldBundles(pending.version);
+  pruneOldBundles(update.version);
 
-  const version = pending.version;
-  pending = null;
-  return { installed: true, version };
+  if (pending === update) pending = null;
+  return { installed: true, version: update.version };
 }
 
 /** Streams a download to disk, so a 140 MB app zip never sits in memory twice. */
@@ -306,9 +337,17 @@ function findExe(dir, exeName) {
  * Downloads and unpacks the release's whole app into userData/app-update, ready
  * to be swapped in on the next restart. Nothing about the running app changes.
  */
-async function downloadAppUpdate(onProgress) {
-  if (!pendingApp) throw new Error('No app update is ready to install. Check again first.');
-  const { version, url } = pendingApp;
+function downloadAppUpdate(onProgress) {
+  if (!appDownload) {
+    appDownload = installAppUpdate(onProgress).finally(() => { appDownload = null; });
+  }
+  return appDownload;
+}
+
+async function installAppUpdate(onProgress) {
+  const update = pendingApp;
+  if (!update) throw new Error('No app update is ready to install. Check again first.');
+  const { version, url } = update;
   const root = selfUpdate.updateRoot();
   const zipFile = path.join(root, `${version}.zip`);
   const staging = path.join(root, `${version}.part`);
@@ -322,6 +361,7 @@ async function downloadAppUpdate(onProgress) {
 
   try {
     await downloadToFile(url, zipFile, onProgress);
+    await checkSignature(update.name, version, update.sigUrl, await signature.sha256OfFile(zipFile));
     const archive = await fs.promises.readFile(zipFile);
     // Async so the app stays responsive while ~350 MB is written. Writing a
     // new app.asar needs no noAsar; only the sync rm/rename below, which would
@@ -342,7 +382,7 @@ async function downloadAppUpdate(onProgress) {
   }
 
   selfUpdate.writeReady({ version, exe: findExe(target, exeName), stagedAt: Date.now() });
-  pendingApp = null;
+  if (pendingApp === update) pendingApp = null;
   return { installed: true, version, restartRequired: true };
 }
 
@@ -408,4 +448,7 @@ function registerUpdateIpc(getWindow) {
   });
 }
 
-module.exports = { getUiRoot, registerUpdateIpc, currentUiVersion, compareVersions, SHELL_VERSION };
+// checkForUpdate and downloadUpdate are exported for the updater test harness only.
+module.exports = {
+  getUiRoot, registerUpdateIpc, currentUiVersion, compareVersions, SHELL_VERSION, checkForUpdate, downloadUpdate,
+};
