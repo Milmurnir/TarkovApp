@@ -69,8 +69,22 @@ function registryInstallLocation(key) {
   });
 }
 
-/** The chosen folder if it still works, else the registry, else the usual places. */
+/** The folder last found, so the 5-second watcher does not search (and run reg.exe) every tick. */
+let found = { dir: null, source: null };
+let lastSearch = 0;
+/** How often a lost folder is looked for again. */
+const RESEARCH_MS = 60000;
+
 async function findLogsDir() {
+  if (found.dir && isLogsDir(found.dir)) return found;
+  if (!found.dir && lastSearch > 0 && Date.now() - lastSearch < RESEARCH_MS) return found;
+  lastSearch = Date.now();
+  found = await searchLogsDir();
+  return found;
+}
+
+/** The chosen folder if it still works, else the registry, else the usual places. */
+async function searchLogsDir() {
   const saved = readKey(STORE_KEY);
   if (typeof saved === 'string' && isLogsDir(saved)) return { dir: saved, source: 'picked' };
 
@@ -239,6 +253,9 @@ function startWatching(getWindow) {
 
 function registerGameLogIpc(getWindow) {
   ipcMain.handle('gamelogs:scan', async () => {
+    // An explicit scan always searches afresh; the cache is for the watcher.
+    found = { dir: null, source: null };
+    lastSearch = 0;
     const result = await scan();
     if (result.ok) startWatching(getWindow);
     return result;
@@ -259,6 +276,7 @@ function registerGameLogIpc(getWindow) {
     const dir = normaliseLogsDir(picked.filePaths[0]);
     if (!dir) return { ok: false, reason: 'not-logs' };
     writeKey(STORE_KEY, dir);
+    found = { dir, source: 'picked' };
     // A different folder means different files; let the next scan send everything.
     sent.clear();
     watchedSizes.clear();
