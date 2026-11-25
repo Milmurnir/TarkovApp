@@ -16,11 +16,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      # Electron's binary is downloaded too: the tests never launch it, but
+      # `require('electron')` in the shell modules under test throws without it.
       - name: Install
         run: npm ci
-        env:
-          # Tests never launch Electron, so its 100+ MB binary is not needed.
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - name: Type-check
         run: npx tsc --noEmit
       - name: Test
