@@ -256,15 +256,27 @@ export default function App() {
       setClickedSpawn(null);
       setZoneIndex(0);
     }
-    fetchMapData(mapName).then(setMapData).catch(() => setMapData(null));
+    // The old map's objectives must not be drawn on the new map while it loads,
+    // and a slow response for the map just left must not land on the new one.
+    setApi(null);
+    let current = true;
+    fetchMapData(mapName)
+      .then((data) => { if (current) setMapData(data); })
+      .catch(() => { if (current) setMapData(null); });
     loadApi();
+    return () => { current = false; };
   }, [mapName]);
 
+  /** Bumped per request, so only the latest map-slice fetch is applied. */
+  const apiRequest = useRef(0);
+
   function loadApi(force = false) {
+    const request = ++apiRequest.current;
     setApiError(null);
     fetchMapSlice(mapName, force)
-      .then(setApi)
+      .then((slice) => { if (request === apiRequest.current) setApi(slice); })
       .catch((error) => {
+        if (request !== apiRequest.current) return;
         setApi(null);
         const detail = error instanceof JsonApiError && error.detail ? ` (${error.detail})` : '';
         setApiError(`${error.message}${detail}`);
